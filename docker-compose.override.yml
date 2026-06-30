@@ -1,0 +1,38 @@
+services:
+  postgres:
+    ports:
+      - '127.0.0.1:5432:5432'
+
+  qdrant:
+    ports:
+      - '127.0.0.1:6333:6333'
+
+  backend-dev:
+    profiles: ['dev']
+    build:
+      context: .
+      target: builder
+    command: pnpm --filter @echosupport/backend dev
+    working_dir: /app
+    environment:
+      NODE_ENV: development
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-echosupport}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-echosupport}
+      QDRANT_URL: http://qdrant:6333
+      JWT_SECRET: ${JWT_SECRET}
+      MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY}
+      ADMIN_CORS_ORIGINS: http://localhost:5173
+      APP_URL: http://localhost:3000
+      UPLOADS_DIR: /app/apps/backend/uploads
+    ports:
+      - '3000:3000'
+    volumes:
+      - ./apps/backend/src:/app/apps/backend/src
+      - ./apps/backend/prisma:/app/apps/backend/prisma
+      - uploads_data:/app/apps/backend/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started

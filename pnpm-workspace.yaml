@@ -1,0 +1,9 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+overrides:
+  hono: ^4.12.25
+allowBuilds:
+  '@prisma/engines': false
+  esbuild: false
+  prisma: false
