@@ -6,11 +6,93 @@ on:
       - 'v*'
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  release:
+  compose-smoke:
+    name: Docker Compose smoke test
     runs-on: ubuntu-latest
+    env:
+      POSTGRES_PASSWORD: smoke-postgres-password
+      JWT_SECRET: smoke-jwt-secret-at-least-32-characters
+      MASTER_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      CRON_SECRET: smoke-cron-secret-at-least-32-characters
+      ADMIN_EMAIL: smoke@example.com
+      ADMIN_PASSWORD: smoke-admin-password
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Build and start the stack
+        run: docker compose up --build --detach --wait --wait-timeout 180
+
+      - name: Check the public health endpoint
+        run: curl --fail --show-error --silent http://localhost:8080/api/v1/health
+
+      - name: Show service logs
+        if: failure()
+        run: docker compose logs --no-color
+
+      - name: Stop the stack
+        if: always()
+        run: docker compose down --volumes --remove-orphans
+
+  publish-image:
+    name: Publish image to GHCR
+    needs: compose-smoke
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Normalize image name
+        id: image
+        shell: bash
+        run: echo "name=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Extract image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ steps.image.outputs.name }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+
+      - name: Build and publish image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runner
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  release:
+    name: Create GitHub release
+    needs: publish-image
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v5
 
