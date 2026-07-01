@@ -2,7 +2,7 @@
 set -eu
 
 echo "Applying database migrations..."
-pnpm exec prisma migrate deploy
+./node_modules/.bin/prisma migrate deploy
 
 echo "Ensuring the initial owner and demo agent exist..."
 node dist/db/seed.js
