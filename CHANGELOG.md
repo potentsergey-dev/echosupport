@@ -4,6 +4,17 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) conve
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-07-01
+
+### Added
+
+- Docker Compose smoke tests for branch, pull request, and tagged release workflows
+- GHCR image publishing with semantic-version and `latest` tags
+
+### Fixed
+
+- Prevent production container startup from reinstalling workspace dependencies
+
 ## [1.0.0] - 2026-06-29
 
 ### Added
