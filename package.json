@@ -1,6 +1,6 @@
 {
   "name": "echosupport",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "private": true,
   "packageManager": "pnpm@11.1.2",
   "engines": {
@@ -13,6 +13,7 @@
     "copy:widget": "node -e \"const fs=require('fs');const src='apps/widget/dist';const dst='apps/backend/public';fs.mkdirSync(dst,{recursive:true});fs.readdirSync(src).forEach(f=>fs.copyFileSync(src+'/'+f,dst+'/'+f));console.log('Widget files copied to backend/public')\"",
     "deploy:widget": "pnpm build:widget && pnpm copy:widget",
     "build:prod": "pnpm -r build && pnpm copy:widget",
+    "check:release": "node scripts/check-release-consistency.mjs",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "typecheck": "pnpm -r typecheck",

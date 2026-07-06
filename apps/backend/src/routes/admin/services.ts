@@ -37,7 +37,9 @@ const servicesRoutes: FastifyPluginAsync = async (fastify) => {
     if (specialistId) where['specialistId'] = specialistId;
 
     const services = await prisma.service.findMany({
-      where: where as NonNullable<NonNullable<Parameters<typeof prisma.service.findMany>[0]>['where']>,
+      where: where as NonNullable<
+        NonNullable<Parameters<typeof prisma.service.findMany>[0]>['where']
+      >,
       include: {
         specialist: { select: { id: true, name: true, role: true } },
         _count: { select: { appointments: true } },

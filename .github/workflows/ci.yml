@@ -31,6 +31,12 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter @echosupport/backend db:generate
 
+      - name: Check release consistency
+        run: pnpm check:release
+
+      - name: Check formatting
+        run: pnpm format:check
+
       - name: Lint
         run: pnpm lint
 
@@ -62,8 +68,8 @@ jobs:
       - name: Build and start the stack
         run: docker compose up --build --detach --wait --wait-timeout 180
 
-      - name: Check the public health endpoint
-        run: curl --fail --show-error --silent http://localhost:8080/api/v1/health
+      - name: Check the public readiness endpoint
+        run: curl --fail --show-error --silent http://localhost:8080/api/v1/ready
 
       - name: Show service logs
         if: failure()

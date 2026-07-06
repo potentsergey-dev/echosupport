@@ -16,6 +16,11 @@ const manifests = [
 const versions = new Map(manifests.map((path) => [path, JSON.parse(read(path)).version]));
 const expectedVersion = versions.get('package.json');
 const failures = [];
+const releaseTag = process.env.GITHUB_REF_TYPE === 'tag' ? process.env.GITHUB_REF_NAME : undefined;
+
+if (releaseTag && releaseTag !== `v${expectedVersion}`) {
+  failures.push(`release tag ${releaseTag} does not match workspace version v${expectedVersion}`);
+}
 
 for (const [path, version] of versions) {
   if (version !== expectedVersion) {
@@ -39,6 +44,9 @@ const documentedKeys = new Set(
   [...read('docs/configuration.md').matchAll(/^\|\s*`([A-Z][A-Z0-9_]*)`/gm)].map(
     (match) => match[1],
   ),
+);
+const composeKeys = new Set(
+  [...read('docker-compose.yml').matchAll(/^\s{6}([A-Z][A-Z0-9_]+):/gm)].map((match) => match[1]),
 );
 const composeGeneratedKeys = new Set([
   'NODE_ENV',
@@ -65,6 +73,9 @@ for (const key of schemaKeys) {
   }
   if (!documentedKeys.has(key)) {
     failures.push(`${key} is validated at runtime but missing from docs/configuration.md`);
+  }
+  if (!composeKeys.has(key)) {
+    failures.push(`${key} is validated at runtime but missing from docker-compose.yml`);
   }
 }
 
