@@ -10,6 +10,28 @@ jobs:
   ci:
     name: Lint, Typecheck, Test & Build
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: echosupport_test
+          POSTGRES_USER: echosupport
+          POSTGRES_PASSWORD: integration-password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U echosupport -d echosupport_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://echosupport:integration-password@localhost:5432/echosupport_test
+      DIRECT_URL: postgresql://echosupport:integration-password@localhost:5432/echosupport_test
+      TEST_DATABASE_URL: postgresql://echosupport:integration-password@localhost:5432/echosupport_test
+      JWT_SECRET: integration-jwt-secret-at-least-32-characters
+      MASTER_ENCRYPTION_KEY: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+      ADMIN_CORS_ORIGINS: https://admin.example
+      UPLOADS_DIR: /tmp/echosupport-test-uploads
 
     steps:
       - name: Checkout
@@ -31,6 +53,12 @@ jobs:
       - name: Generate Prisma client
         run: pnpm --filter @echosupport/backend db:generate
 
+      - name: Verify integration database safety
+        run: pnpm --filter @echosupport/backend test:integration:check-db
+
+      - name: Apply test database migrations
+        run: pnpm --filter @echosupport/backend db:migrate:deploy
+
       - name: Check release consistency
         run: pnpm check:release
 
@@ -45,6 +73,9 @@ jobs:
 
       - name: Test with coverage
         run: pnpm test:coverage
+
+      - name: Test authentication and tenant isolation with PostgreSQL
+        run: pnpm --filter @echosupport/backend test:integration
 
       - name: Build
         run: pnpm build

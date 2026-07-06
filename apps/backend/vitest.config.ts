@@ -4,7 +4,7 @@ export default defineConfig({
   test: {
     // Only look for tests in src, never in the compiled dist/ output
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
-    exclude: ['dist/**', 'node_modules/**'],
+    exclude: ['dist/**', 'node_modules/**', 'src/**/*.integration.test.ts'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'lcov'],
