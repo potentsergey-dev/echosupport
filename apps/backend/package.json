@@ -16,6 +16,7 @@
     "test": "vitest run",
     "test:integration:check-db": "node scripts/assert-test-database.mjs",
     "test:integration": "vitest run --config vitest.integration.config.mts",
+    "test:integration:ws": "vitest run --config vitest.integration.config.mts src/__tests__/websocket-security.integration.test.ts",
     "test:coverage": "vitest run --coverage"
   },
   "devDependencies": {
@@ -23,10 +24,12 @@
     "@types/jsdom": "^28.0.3",
     "@types/node": "^25.7.0",
     "@types/pdf-parse": "^1.1.5",
+    "@types/ws": "^8.18.1",
     "@vitest/coverage-v8": "4.1.6",
     "prisma": "^7.8.0",
     "tsx": "^4.21.0",
-    "vitest": "^4.1.6"
+    "vitest": "^4.1.6",
+    "ws": "^8.21.0"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.0",
