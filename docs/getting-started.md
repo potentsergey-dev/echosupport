@@ -31,6 +31,8 @@ after data has been encrypted.
 ```bash
 docker compose up -d --build
 docker compose ps
+curl http://localhost:8080/api/v1/health
+curl http://localhost:8080/api/v1/ready
 docker compose logs -f backend
 ```
 
@@ -42,9 +44,47 @@ in `.env` and restarting the backend rotates that account's password.
 
 ## 5. Verify
 
-Sign in, create or edit the demo agent, save provider keys, add a document, wait for
-indexing, then open the Embed page. Test the snippet on a page whose origin is listed in
-the agent's allowed origins.
+Sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `.env`, create or edit the demo
+agent, save provider keys, add a document, wait for indexing, then open the Embed page.
+Test the snippet on a page whose origin is listed in the agent's allowed origins.
+
+You can run the install smoke against the stack:
+
+```bash
+SMOKE_BASE_URL=http://localhost:8080 pnpm smoke:install
+```
+
+To smoke-test public session creation too, add an agent public key from the Embed page:
+
+```bash
+SMOKE_BASE_URL=http://localhost:8080 SMOKE_AGENT_KEY=pk_your_agent_key pnpm smoke:install
+```
+
+For the local widget demo, copy that public key into `apps/widget/demo.html`, run:
+
+```bash
+pnpm --filter @echosupport/widget dev
+```
+
+Then open the Vite URL printed in the terminal.
 
 For Internet deployment, terminate HTTPS at a reverse proxy and set
 `PUBLIC_BASE_URL` and `ADMIN_CORS_ORIGINS` to the HTTPS URL.
+
+## Troubleshooting
+
+- `docker compose config` fails: check that every required value in `.env` has been
+  replaced, especially `POSTGRES_PASSWORD`, `JWT_SECRET`, `MASTER_ENCRYPTION_KEY`,
+  `CRON_SECRET`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD`.
+- `/api/v1/ready` returns `503`: inspect `docker compose logs backend postgres qdrant`.
+  The backend waits for migrations, PostgreSQL, and Qdrant.
+- Backend logs show Prisma `P1000` after changing `POSTGRES_PASSWORD` or `POSTGRES_DB`:
+  the existing `postgres_data` volume was initialized with the old credentials. Restore
+  the old values, or back up data and run `docker compose down --volumes` before starting
+  a fresh install.
+- Login fails after changing `.env`: restart the backend; the seed step rotates the initial
+  owner password from `ADMIN_PASSWORD`.
+- Widget returns `Origin not allowed`: add the page origin to the agent's allowed origins,
+  or leave the list empty only for trusted local testing.
+- Chat returns an LLM configuration error: set `OPENROUTER_API_KEY` or save an agent-specific
+  OpenRouter key in the admin panel.

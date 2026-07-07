@@ -41,10 +41,24 @@ Start EchoSupport:
 ```bash
 docker compose up -d --build
 docker compose ps
+curl http://localhost:8080/api/v1/ready
 ```
 
 Open <http://localhost:8080/admin> and sign in with the initial owner credentials
-from `.env`. Migrations and the initial idempotent seed run automatically.
+from `.env`. Migrations and the initial idempotent seed run automatically. The widget
+assets are served from <http://localhost:8080/widget.js> and
+<http://localhost:8080/embed.js>.
+
+Run the user-facing install smoke against a running stack:
+
+```bash
+SMOKE_BASE_URL=http://localhost:8080 pnpm smoke:install
+```
+
+After login, open the Embed page for the demo agent, copy its public key into
+`apps/widget/demo.html`, run `pnpm --filter @echosupport/widget dev`, and open the Vite
+demo URL shown in the terminal. Chat answers require an OpenRouter key, either globally
+in `.env` or saved on the agent.
 
 > PostgreSQL passwords used inside `DATABASE_URL` must be URL-encoded. The provided
 > Compose configuration constructs the URL from `POSTGRES_*`; avoid reserved URL
@@ -57,6 +71,7 @@ from `.env`. Migrations and the initial idempotent seed run automatically.
 - [Configuration reference](docs/configuration.md)
 - [Create an agent and embed the widget](docs/agent-setup.md)
 - [Upgrade and backup](docs/upgrade.md)
+- [Install readiness matrix](docs/testing/install-readiness-matrix.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 - [Architecture and design notes](plans/00-overview.md)

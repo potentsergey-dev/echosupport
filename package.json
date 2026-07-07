@@ -19,6 +19,7 @@
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter @echosupport/backend test",
     "test:coverage": "pnpm --filter @echosupport/backend test:coverage",
+    "smoke:install": "node scripts/smoke-install-readiness.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepare": "husky"

@@ -34,3 +34,14 @@ Agent-specific provider keys saved in the admin panel are encrypted with
 
 Changing `MASTER_ENCRYPTION_KEY` makes existing encrypted keys unreadable. Back it up in
 a password manager.
+
+## Smoke-check variables
+
+These variables are used only by `pnpm smoke:install` and are not backend runtime
+configuration:
+
+| Variable           | Required | Default                 | Purpose                                  |
+| ------------------ | -------- | ----------------------- | ---------------------------------------- |
+| `SMOKE_BASE_URL`   | No       | `http://localhost:8080` | Running stack URL to check               |
+| `SMOKE_TIMEOUT_MS` | No       | `10000`                 | Per-request timeout for smoke checks     |
+| `SMOKE_AGENT_KEY`  | No       | —                       | Also create a public session if provided |
