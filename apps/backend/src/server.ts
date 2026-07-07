@@ -23,11 +23,13 @@ import publicSessionRoutes from './routes/public/sessions.js';
 import internalCronRoutes from './routes/internal/cron.js';
 import operatorRoutes from './routes/operator/index.js';
 import wsRoutes from './routes/ws/index.js';
+import healthRoutes from './routes/health.js';
 import { startJobRunner } from './services/job-runner.js';
 import { startCleanupRunner } from './services/cleanup.js';
 import { startOperatorNotifier, stopOperatorNotifier } from './services/operator-notifier.js';
 import { prisma } from './db/prisma.js';
 import { isAdminOriginAllowed } from './services/origin-policy.js';
+import { checkQdrantConnection } from './adapters/vectorstore/qdrant.js';
 
 export async function buildServer() {
   const app = Fastify({
@@ -105,8 +107,17 @@ export async function buildServer() {
     });
   });
 
-  app.get('/api/v1/health', async (_req, reply) => {
-    return reply.send({ status: 'ok', timestamp: new Date().toISOString() });
+  await app.register(healthRoutes, {
+    prefix: '/api/v1',
+    dependencies: [
+      {
+        name: 'database',
+        check: async () => {
+          await prisma.$queryRawUnsafe('SELECT 1');
+        },
+      },
+      { name: 'qdrant', check: checkQdrantConnection },
+    ],
   });
 
   // Auth routes (public)

@@ -24,11 +24,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      - name: Check release consistency
+        run: node scripts/check-release-consistency.mjs
+
       - name: Build and start the stack
         run: docker compose up --build --detach --wait --wait-timeout 180
 
-      - name: Check the public health endpoint
-        run: curl --fail --show-error --silent http://localhost:8080/api/v1/health
+      - name: Run install readiness smoke
+        run: node scripts/smoke-install-readiness.mjs
 
       - name: Show service logs
         if: failure()
@@ -74,6 +87,7 @@ jobs:
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=semver,pattern={{major}}
+            type=raw,value=latest
 
       - name: Build and publish image
         uses: docker/build-push-action@v6

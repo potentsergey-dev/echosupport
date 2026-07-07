@@ -15,6 +15,10 @@ function getClient(): QdrantClient {
   return _client;
 }
 
+export async function checkQdrantConnection(): Promise<void> {
+  await getClient().getCollections();
+}
+
 export function getCollectionName(tenantId: string): string {
   return `kb_tenant_${tenantId}`;
 }

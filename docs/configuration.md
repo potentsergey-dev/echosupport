@@ -5,6 +5,9 @@
 | `POSTGRES_DB`                  | Docker      | `echosupport`           | PostgreSQL database                            |
 | `POSTGRES_USER`                | Docker      | `echosupport`           | PostgreSQL user                                |
 | `POSTGRES_PASSWORD`            | Yes         | —                       | PostgreSQL password                            |
+| `NODE_ENV`                     | Internal    | `production`            | Backend runtime mode                           |
+| `HOST`                         | Internal    | `0.0.0.0`               | Backend listen address                         |
+| `PORT`                         | Internal    | `3000`                  | Backend listen port                            |
 | `DATABASE_URL`                 | Non-Compose | —                       | PostgreSQL connection URL                      |
 | `DIRECT_URL`                   | No          | `DATABASE_URL`          | Direct URL used by migrations                  |
 | `JWT_SECRET`                   | Yes         | —                       | JWT signing secret, at least 32 characters     |
@@ -20,6 +23,7 @@
 | `QDRANT_API_KEY`               | Cloud only  | —                       | Qdrant Cloud API key                           |
 | `OPENROUTER_API_KEY`           | Usually     | empty                   | Default chat completion key                    |
 | `OPENROUTER_EMBEDDING_API_KEY` | No          | empty                   | Dedicated OpenRouter embeddings key            |
+| `OPENROUTER_BASE_URL`          | No          | OpenRouter API          | OpenRouter-compatible API base URL             |
 | `OPENAI_API_KEY`               | No          | empty                   | OpenAI embeddings/Whisper key                  |
 | `DEEPGRAM_API_KEY`             | No          | empty                   | Deepgram speech-to-text key                    |
 | `MAX_DOCUMENT_SIZE_MB`         | No          | `50`                    | Maximum uploaded document size                 |
@@ -30,3 +34,14 @@ Agent-specific provider keys saved in the admin panel are encrypted with
 
 Changing `MASTER_ENCRYPTION_KEY` makes existing encrypted keys unreadable. Back it up in
 a password manager.
+
+## Smoke-check variables
+
+These variables are used only by `pnpm smoke:install` and are not backend runtime
+configuration:
+
+| Variable           | Required | Default                 | Purpose                                  |
+| ------------------ | -------- | ----------------------- | ---------------------------------------- |
+| `SMOKE_BASE_URL`   | No       | `http://localhost:8080` | Running stack URL to check               |
+| `SMOKE_TIMEOUT_MS` | No       | `10000`                 | Per-request timeout for smoke checks     |
+| `SMOKE_AGENT_KEY`  | No       | —                       | Also create a public session if provided |

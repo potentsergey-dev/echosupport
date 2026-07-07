@@ -86,6 +86,10 @@ function formatPublicChatError(err: unknown): string {
   return 'Assistant is temporarily unavailable. Check the server logs for the exact LLM error.';
 }
 
+function formatPublicTranscriptionError(): string {
+  return 'Transcription failed. Please try again later.';
+}
+
 // ── Zod schemas ──────────────────────────────────────────────────────────────
 
 const CreateSessionSchema = z.object({
@@ -537,6 +541,10 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const audioBuffer = Buffer.concat(chunks);
 
+      if (audioBuffer.length > STT_MAX_BYTES || data.file.truncated) {
+        return reply.status(413).send({ error: `Audio file too large (max ${STT_MAX_MB} MB)` });
+      }
+
       if (audioBuffer.length === 0) {
         return reply.status(400).send({ error: 'Audio file is empty' });
       }
@@ -556,8 +564,7 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
           return reply.send(result);
         } catch (err) {
           req.log.error({ err, agentId: agent.id }, 'Whisper transcription failed');
-          const msg = err instanceof Error ? err.message : 'Transcription failed';
-          return reply.status(502).send({ error: `Whisper error: ${msg}` });
+          return reply.status(502).send({ error: formatPublicTranscriptionError() });
         }
       }
 
@@ -574,8 +581,7 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.send(result);
       } catch (err) {
         req.log.error({ err, agentId: agent.id }, 'Deepgram transcription failed');
-        const msg = err instanceof Error ? err.message : 'Transcription failed';
-        return reply.status(502).send({ error: `Deepgram error: ${msg}` });
+        return reply.status(502).send({ error: formatPublicTranscriptionError() });
       }
     },
   );

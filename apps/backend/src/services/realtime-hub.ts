@@ -65,6 +65,9 @@ export function registerOperator(tenantId: string, ws: RealtimeSocket): void {
 
 export function unregisterOperator(tenantId: string, ws: RealtimeSocket): void {
   operatorConnections.get(tenantId)?.delete(ws);
+  if (operatorConnections.get(tenantId)?.size === 0) {
+    operatorConnections.delete(tenantId);
+  }
 }
 
 // ── Visitor connections (sessionId → Set<WebSocket>) ─────────────────────────
@@ -113,4 +116,22 @@ export function publishToVisitor(sessionId: string, event: HubEvent): void {
 export function publishToAll(tenantId: string, sessionId: string, event: HubEvent): void {
   publishToOperators(tenantId, event);
   publishToVisitor(sessionId, event);
+}
+
+export function getRealtimeConnectionCounts(): {
+  operatorTenants: number;
+  operatorSockets: number;
+  visitorSessions: number;
+  visitorSockets: number;
+} {
+  return {
+    operatorTenants: operatorConnections.size,
+    operatorSockets: [...operatorConnections.values()].reduce((total, sockets) => {
+      return total + sockets.size;
+    }, 0),
+    visitorSessions: visitorConnections.size,
+    visitorSockets: [...visitorConnections.values()].reduce((total, sockets) => {
+      return total + sockets.size;
+    }, 0),
+  };
 }

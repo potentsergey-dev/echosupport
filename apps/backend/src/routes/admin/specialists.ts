@@ -45,7 +45,9 @@ const specialistsRoutes: FastifyPluginAsync = async (fastify) => {
     if (agentId) where['agentId'] = agentId;
 
     const specialists = await prisma.specialist.findMany({
-      where: where as NonNullable<NonNullable<Parameters<typeof prisma.specialist.findMany>[0]>['where']>,
+      where: where as NonNullable<
+        NonNullable<Parameters<typeof prisma.specialist.findMany>[0]>['where']
+      >,
       include: {
         workingHours: { orderBy: [{ dayOfWeek: 'asc' }, { fromMinutes: 'asc' }] },
         _count: { select: { services: true, appointments: true } },

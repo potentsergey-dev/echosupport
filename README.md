@@ -20,7 +20,8 @@ human handoff, appointment booking, voice input, CSAT, and an operator inbox.
 
 ## Quick Start with Docker
 
-Requirements: Docker Engine with Docker Compose v2, 2 GB RAM, and an OpenRouter API key.
+Requirements: Docker Engine with Docker Compose v2 and 2 GB RAM. An OpenRouter API key is
+needed for the first AI chat answer, but not for the install smoke.
 
 ```bash
 git clone https://github.com/potentsergey-dev/echosupport.git
@@ -28,8 +29,9 @@ cd echosupport
 cp .env.example .env
 ```
 
-Edit `.env`: replace every `replace-with-...` value, set `ADMIN_EMAIL`,
-`ADMIN_PASSWORD`, and `OPENROUTER_API_KEY`. Generate secrets with:
+Edit `.env`: replace every `replace-with-...` value and set `ADMIN_EMAIL` and
+`ADMIN_PASSWORD`. Set `OPENROUTER_API_KEY` now if you want chat answers immediately.
+Generate secrets with:
 
 ```bash
 openssl rand -base64 48   # JWT_SECRET and CRON_SECRET
@@ -41,10 +43,24 @@ Start EchoSupport:
 ```bash
 docker compose up -d --build
 docker compose ps
+curl http://localhost:8080/api/v1/ready
 ```
 
 Open <http://localhost:8080/admin> and sign in with the initial owner credentials
-from `.env`. Migrations and the initial idempotent seed run automatically.
+from `.env`. Migrations and the initial idempotent seed run automatically. The widget
+assets are served from <http://localhost:8080/widget.js> and
+<http://localhost:8080/embed.js>.
+
+Run the user-facing install smoke against a running stack:
+
+```bash
+SMOKE_BASE_URL=http://localhost:8080 pnpm smoke:install
+```
+
+After login, open the Embed page for the demo agent, copy its public key into
+`apps/widget/demo.html`, run `pnpm --filter @echosupport/widget dev`, and open the Vite
+demo URL shown in the terminal. Chat answers require an OpenRouter key, either globally
+in `.env` or saved on the agent.
 
 > PostgreSQL passwords used inside `DATABASE_URL` must be URL-encoded. The provided
 > Compose configuration constructs the URL from `POSTGRES_*`; avoid reserved URL
@@ -57,6 +73,7 @@ from `.env`. Migrations and the initial idempotent seed run automatically.
 - [Configuration reference](docs/configuration.md)
 - [Create an agent and embed the widget](docs/agent-setup.md)
 - [Upgrade and backup](docs/upgrade.md)
+- [Install readiness matrix](docs/testing/install-readiness-matrix.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
 - [Architecture and design notes](plans/00-overview.md)

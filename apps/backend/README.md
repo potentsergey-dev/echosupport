@@ -4,25 +4,30 @@ Fastify backend for EchoSupport.
 
 ## Prerequisites
 
-- Node.js ≥ 20
-- pnpm ≥ 9
+- Node.js ≥ 22.13
+- pnpm ≥ 11.1
 - PostgreSQL (Neon or local)
+- Qdrant for readiness and retrieval
 
 ## Setup
 
-1. Copy the root `.env.example` to `apps/backend/.env` and fill in `DATABASE_URL`, `JWT_SECRET`, and `MASTER_ENCRYPTION_KEY`.
+1. Copy `apps/backend/.env.example` to `apps/backend/.env` for local backend-only
+   development, or use the root `.env.example` with Docker Compose.
 
 ```bash
-cp ../../.env.example .env
+cp apps/backend/.env.example apps/backend/.env
 ```
 
-2. Run database migrations:
+2. Fill `DATABASE_URL`, `JWT_SECRET`, `MASTER_ENCRYPTION_KEY`, and provider keys as needed.
+
+3. Run database migrations:
 
 ```bash
 pnpm db:migrate
 ```
 
-3. Seed demo data (dev only):
+4. Seed demo data (dev only). The seed requires `ADMIN_EMAIL` and `ADMIN_PASSWORD`
+   with at least 12 characters:
 
 ```bash
 pnpm db:seed
@@ -57,7 +62,6 @@ curl http://localhost:3000/api/v1/health
 | `pnpm db:studio`         | Open Prisma Studio                 |
 | `pnpm test`              | Run unit tests                     |
 
-## Demo credentials (after seed)
+## Demo credentials
 
-- **Email**: `owner@local.test`
-- **Password**: `admin12345`
+The seed creates or updates the initial owner from `ADMIN_EMAIL` and `ADMIN_PASSWORD`.
