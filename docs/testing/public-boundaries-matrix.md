@@ -11,3 +11,6 @@
 
 Breaking protocol changes are out of scope for Stage 1. Any public response shape change should be
 recorded as a follow-up unless required to remove a concrete secret leak.
+
+Covered by `apps/backend/src/__tests__/public-boundaries.integration.test.ts`, which uses a
+migrated PostgreSQL database and mocked RAG/LLM/STT providers so no real provider key is required.

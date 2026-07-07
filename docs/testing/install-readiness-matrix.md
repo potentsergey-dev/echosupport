@@ -16,3 +16,6 @@
 Minimum first success for release readiness is: a fresh Docker Compose stack reaches `/api/v1/ready`,
 the admin app opens, the initial owner can sign in, widget assets are served, and deterministic
 route-level tests cover public session/message behavior without requiring real AI provider calls.
+
+Automated checks are `node scripts/smoke-install-readiness.mjs` for a running stack and
+`pnpm --filter @echosupport/backend test:integration` for deterministic public chat/session flow.

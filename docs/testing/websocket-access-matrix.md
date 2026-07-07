@@ -15,3 +15,6 @@ Server-originated event types are `session:new`, `session:status`, `session:mess
 `operator:typing`, `operator:message`, `operator:joined`, `operator:typing_visitor`, and
 `appointment:new`. Operator broadcasts use the tenant subscription; visitor broadcasts use the
 session subscription. Closing a socket removes its subscription bucket when it becomes empty.
+
+Covered by `apps/backend/src/__tests__/websocket-security.integration.test.ts` and the backend
+integration suite.

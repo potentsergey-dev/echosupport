@@ -12,4 +12,4 @@ The route-level integration suite uses `Fastify.inject` and a migrated PostgreSQ
 containing two tenants. `TEST_DATABASE_URL` is always required, must name a test database and is
 the only value copied into Prisma's `DATABASE_URL` and `DIRECT_URL`. Remote databases require the
 additional explicit `ALLOW_REMOTE_TEST_DATABASE=true` opt-in. The suite never skips and is a
-required CI step.
+required CI step via `pnpm --filter @echosupport/backend test:integration`.

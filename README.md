@@ -20,7 +20,8 @@ human handoff, appointment booking, voice input, CSAT, and an operator inbox.
 
 ## Quick Start with Docker
 
-Requirements: Docker Engine with Docker Compose v2, 2 GB RAM, and an OpenRouter API key.
+Requirements: Docker Engine with Docker Compose v2 and 2 GB RAM. An OpenRouter API key is
+needed for the first AI chat answer, but not for the install smoke.
 
 ```bash
 git clone https://github.com/potentsergey-dev/echosupport.git
@@ -28,8 +29,9 @@ cd echosupport
 cp .env.example .env
 ```
 
-Edit `.env`: replace every `replace-with-...` value, set `ADMIN_EMAIL`,
-`ADMIN_PASSWORD`, and `OPENROUTER_API_KEY`. Generate secrets with:
+Edit `.env`: replace every `replace-with-...` value and set `ADMIN_EMAIL` and
+`ADMIN_PASSWORD`. Set `OPENROUTER_API_KEY` now if you want chat answers immediately.
+Generate secrets with:
 
 ```bash
 openssl rand -base64 48   # JWT_SECRET and CRON_SECRET
