@@ -4,6 +4,16 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) conve
 
 ## [Unreleased]
 
+## [1.0.2] - 2026-07-07
+
+### Changed
+
+- Hardened release readiness checks, CI release workflow behavior, and install readiness smoke coverage.
+- Improved health and readiness validation for deployment smoke tests.
+- Expanded auth, tenant isolation, and WebSocket tenant isolation coverage.
+- Tightened public chat and STT boundary validation.
+- Refined release, setup, configuration, and testing documentation.
+
 ## [1.0.1] - 2026-07-01
 
 ### Added
