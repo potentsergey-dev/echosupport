@@ -5,6 +5,11 @@ describe('origin policy', () => {
   it('supports unrestricted and explicit widget origins', () => {
     expect(isOriginAllowed('https://site.example', [])).toBe(true);
     expect(isOriginAllowed('https://site.example', ['https://site.example'])).toBe(true);
+    expect(isOriginAllowed('https://site.example', ['https://site.example/'])).toBe(true);
+    expect(isOriginAllowed('https://site.example', [' https://site.example/help '])).toBe(true);
+    expect(isOriginAllowed('http://localhost:5173', ['http://localhost:5173/demo.html'])).toBe(
+      true,
+    );
     expect(isOriginAllowed('https://evil.example', ['https://site.example'])).toBe(false);
     expect(isOriginAllowed(undefined, ['https://site.example'])).toBe(false);
   });

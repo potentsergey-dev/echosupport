@@ -6,8 +6,13 @@ import { Button } from '../components/ui/Button';
 
 export function EmbedPage({ agentId }: { agentId: string }) {
   const [copied, setCopied] = useState(false);
+  const [copiedKey, setCopiedKey] = useState(false);
 
-  const { data, isLoading, error } = useQuery<{ snippet: string }>({
+  const { data, isLoading, error } = useQuery<{
+    snippet: string;
+    agentKey: string;
+    publicBaseUrl: string;
+  }>({
     queryKey: ['embed-snippet', agentId],
     queryFn: () => getEmbedSnippet(agentId),
   });
@@ -17,6 +22,13 @@ export function EmbedPage({ agentId }: { agentId: string }) {
     await navigator.clipboard.writeText(data.snippet);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function handleCopyKey() {
+    if (!data?.agentKey) return;
+    await navigator.clipboard.writeText(data.agentKey);
+    setCopiedKey(true);
+    setTimeout(() => setCopiedKey(false), 2000);
   }
 
   return (
@@ -57,6 +69,28 @@ export function EmbedPage({ agentId }: { agentId: string }) {
           </pre>
         )}
 
+        {data?.agentKey && (
+          <div className="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <h4 className="text-sm font-semibold text-gray-900">Public agent key</h4>
+                <code className="mt-1 block break-all font-mono text-xs text-gray-600">
+                  {data.agentKey}
+                </code>
+              </div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => void handleCopyKey()}
+                disabled={!data.agentKey}
+              >
+                {copiedKey ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+                {copiedKey ? 'Скопировано!' : 'Ключ'}
+              </Button>
+            </div>
+          </div>
+        )}
+
         {data?.snippet && (
           <div className="mt-4 rounded-lg bg-blue-50 p-4">
             <h4 className="mb-2 text-sm font-semibold text-blue-900">Инструкция</h4>
@@ -72,6 +106,19 @@ export function EmbedPage({ agentId }: { agentId: string }) {
               </li>
               <li>Откройте страницу в браузере — в углу появится кнопка чата.</li>
             </ol>
+          </div>
+        )}
+
+        {data?.agentKey && (
+          <div className="mt-4 rounded-lg bg-gray-50 p-4">
+            <h4 className="mb-2 text-sm font-semibold text-gray-900">Локальная проверка</h4>
+            <p className="text-sm text-gray-600">
+              Запустите <code className="font-mono">pnpm --filter @echosupport/widget dev</code> и
+              откройте demo с этим ключом:
+            </p>
+            <pre className="mt-2 overflow-x-auto rounded bg-white p-3 text-xs text-gray-700">
+              <code>{`http://localhost:5173/demo.html?agentKey=${data.agentKey}&apiBase=${data.publicBaseUrl}`}</code>
+            </pre>
           </div>
         )}
       </section>
