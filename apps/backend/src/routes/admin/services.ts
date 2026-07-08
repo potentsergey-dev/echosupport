@@ -18,10 +18,10 @@ const ADMIN_ROLES = ['OWNER', 'ADMIN'];
 
 const CreateServiceSchema = z.object({
   name: z.string().min(1).max(200),
-  description: z.string().max(1000).optional(),
+  description: z.string().max(1000).nullable().optional(),
   durationMin: z.number().int().min(5).max(480),
-  priceLabel: z.string().max(100).optional(),
-  specialistId: z.string().optional(), // null = available for any specialist
+  priceLabel: z.string().max(100).nullable().optional(),
+  specialistId: z.string().nullable().optional(), // null = available for any specialist
   isActive: z.boolean().optional(),
 });
 

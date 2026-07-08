@@ -226,9 +226,9 @@ export function ServicesPage() {
       createService({
         name: data.name,
         durationMin: data.durationMin,
-        ...(data.priceLabel ? { priceLabel: data.priceLabel } : {}),
-        ...(data.description ? { description: data.description } : {}),
-        ...(data.specialistId ? { specialistId: data.specialistId } : {}),
+        priceLabel: data.priceLabel.trim() || null,
+        description: data.description.trim() || null,
+        specialistId: data.specialistId || null,
         isActive: data.isActive,
       }),
     onSuccess: () => {
@@ -246,9 +246,9 @@ export function ServicesPage() {
       updateService(id, {
         name: data.name,
         durationMin: data.durationMin,
-        ...(data.priceLabel ? { priceLabel: data.priceLabel } : {}),
-        ...(data.description ? { description: data.description } : {}),
-        ...(data.specialistId ? { specialistId: data.specialistId } : {}),
+        priceLabel: data.priceLabel.trim() || null,
+        description: data.description.trim() || null,
+        specialistId: data.specialistId || null,
         isActive: data.isActive,
       }),
     onSuccess: () => {

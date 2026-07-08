@@ -15,6 +15,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../db/prisma.js';
+import { hasOverlappingWorkingRanges } from '../../services/booking.js';
 
 const ADMIN_ROLES = ['OWNER', 'ADMIN'];
 
@@ -187,6 +188,9 @@ const specialistsRoutes: FastifyPluginAsync = async (fastify) => {
           .code(400)
           .send({ error: `Invalid range for dayOfWeek=${e.dayOfWeek}: from must be before to` });
       }
+    }
+    if (hasOverlappingWorkingRanges(entries)) {
+      return reply.code(400).send({ error: 'Working hours must not overlap on the same day' });
     }
 
     await prisma.$transaction([

@@ -359,9 +359,9 @@ export function listServices(params?: { specialistId?: string }): Promise<Servic
 export function createService(data: {
   name: string;
   durationMin: number;
-  priceLabel?: string;
-  description?: string;
-  specialistId?: string;
+  priceLabel?: string | null;
+  description?: string | null;
+  specialistId?: string | null;
   isActive?: boolean;
 }): Promise<Service> {
   return request('/admin/services', {
@@ -375,9 +375,9 @@ export function updateService(
   data: Partial<{
     name: string;
     durationMin: number;
-    priceLabel: string;
-    description: string;
-    specialistId: string;
+    priceLabel: string | null;
+    description: string | null;
+    specialistId: string | null;
     isActive: boolean;
   }>,
 ): Promise<Service> {

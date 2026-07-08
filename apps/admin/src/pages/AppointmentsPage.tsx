@@ -119,6 +119,7 @@ function CreateAppointmentModal({
   const [startsAt, setStartsAt] = useState('');
   const [notes, setNotes] = useState('');
 
+  const activeSpecialists = specialists.filter((s) => s.isActive);
   const filteredServices = services.filter(
     (s) => !specialistId || !s.specialistId || s.specialistId === specialistId,
   );
@@ -156,15 +157,18 @@ function CreateAppointmentModal({
               onChange={(e) => setSpecialistId(e.target.value)}
               className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
             >
-              <option value="">— Любой —</option>
-              {specialists
-                .filter((s) => s.isActive)
-                .map((s) => (
-                  <option key={s.id} value={s.id}>
-                    {s.name}
-                  </option>
-                ))}
+              <option value="">Выберите специалиста</option>
+              {activeSpecialists.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
             </select>
+            {activeSpecialists.length === 0 && (
+              <p className="mt-1 text-xs text-amber-600">
+                Сначала добавьте активного специалиста и рабочие часы.
+              </p>
+            )}
           </div>
           <div>
             <Label htmlFor="ca-service">Услуга</Label>
@@ -231,7 +235,7 @@ function CreateAppointmentModal({
           </Button>
           <Button
             loading={mutation.isPending}
-            disabled={!visitorName.trim() || !visitorPhone.trim() || !startsAt}
+            disabled={!specialistId || !visitorName.trim() || !visitorPhone.trim() || !startsAt}
             onClick={() => mutation.mutate()}
           >
             Создать
