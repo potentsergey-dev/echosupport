@@ -32,6 +32,11 @@
 Agent-specific provider keys saved in the admin panel are encrypted with
 `MASTER_ENCRYPTION_KEY` and override global provider keys.
 
+Knowledge indexing requires an embeddings-capable key. EchoSupport checks agent-specific
+OpenAI embedding, OpenRouter embedding, and OpenAI keys first, then global
+`OPENAI_API_KEY`, `OPENROUTER_EMBEDDING_API_KEY`, and `OPENROUTER_API_KEY`. If none are set,
+indexing fails before contacting Qdrant and the Knowledge base tab shows the item-level error.
+
 Use global provider keys in `.env` when every agent can share the same provider account.
 Use the agent API keys tab when a tenant or agent needs separate billing, limits, or
 rotation. Empty agent key fields do not erase existing encrypted keys.

@@ -23,13 +23,41 @@ vi.mock('../config/env.js', () => ({
   },
 }));
 
+vi.mock('../adapters/storage/local-fs.js', () => ({
+  saveFile: vi.fn(),
+  deleteFile: vi.fn(),
+}));
+
+vi.mock('../adapters/vectorstore/qdrant.js', () => ({
+  deleteByDocumentId: vi.fn(),
+  deleteBySourceId: vi.fn(),
+}));
+
 vi.mock('../db/prisma.js', () => ({
   prisma: {
     job: {
       findUnique: vi.fn(),
+      create: vi.fn(),
     },
     agent: {
       findFirst: vi.fn(),
+    },
+    document: {
+      findMany: vi.fn(),
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      count: vi.fn(),
+      delete: vi.fn(),
+    },
+    documentChunk: {
+      deleteMany: vi.fn(),
+    },
+    knowledgeSource: {
+      findMany: vi.fn(),
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      count: vi.fn(),
+      delete: vi.fn(),
     },
     session: {
       deleteMany: vi.fn().mockResolvedValue({ count: 3 }),
@@ -41,6 +69,7 @@ import Fastify from 'fastify';
 import jwt from '@fastify/jwt';
 import authPlugin from '../plugins/auth.js';
 import jobRoutes from '../routes/admin/jobs.js';
+import documentRoutes from '../routes/admin/documents.js';
 import internalCronRoutes from '../routes/internal/cron.js';
 import { prisma } from '../db/prisma.js';
 
@@ -49,6 +78,7 @@ async function buildTestServer() {
   await app.register(jwt, { secret: 'test-secret-at-least-32-characters-long!!' });
   await app.register(authPlugin);
   await app.register(jobRoutes, { prefix: '/api/v1/admin' });
+  await app.register(documentRoutes, { prefix: '/api/v1/admin' });
   await app.register(internalCronRoutes, { prefix: '/api/v1/internal' });
   return app;
 }
@@ -207,6 +237,66 @@ describe('jobs — tenant isolation', () => {
     });
 
     expect(res.statusCode).toBe(404);
+    await app.close();
+  });
+});
+
+describe('knowledge routes — indexing boundaries', () => {
+  it('rejects reindexing before any files or website sources exist', async () => {
+    const app = await buildTestServer();
+
+    vi.mocked(prisma.agent.findFirst).mockResolvedValueOnce({ id: 'agent-1' } as never);
+    vi.mocked(prisma.document.count).mockResolvedValueOnce(0);
+    vi.mocked(prisma.knowledgeSource.count).mockResolvedValueOnce(0);
+
+    const token = signToken(app);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/agents/agent-1/reindex',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json<{ error: string }>().error).toMatch(/add at least one/i);
+    expect(prisma.job.create).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it('creates a reindex job when knowledge exists', async () => {
+    const app = await buildTestServer();
+
+    vi.mocked(prisma.agent.findFirst).mockResolvedValueOnce({ id: 'agent-1' } as never);
+    vi.mocked(prisma.document.count).mockResolvedValueOnce(1);
+    vi.mocked(prisma.knowledgeSource.count).mockResolvedValueOnce(0);
+    vi.mocked(prisma.job.create).mockResolvedValueOnce({ id: 'job-1' } as never);
+
+    const token = signToken(app);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/agents/agent-1/reindex',
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    expect(res.statusCode).toBe(202);
+    expect(res.json<{ jobId: string }>().jobId).toBe('job-1');
+    await app.close();
+  });
+
+  it('rejects private localhost website sources', async () => {
+    const app = await buildTestServer();
+
+    vi.mocked(prisma.agent.findFirst).mockResolvedValueOnce({ id: 'agent-1' } as never);
+
+    const token = signToken(app);
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/agents/agent-1/sources',
+      headers: { Authorization: `Bearer ${token}` },
+      payload: { url: 'http://localhost:3000/docs', maxDepth: 1 },
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(prisma.knowledgeSource.create).not.toHaveBeenCalled();
     await app.close();
   });
 });

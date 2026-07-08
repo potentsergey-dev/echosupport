@@ -31,10 +31,9 @@ export async function retrieve(
     select: { tenantId: true, embeddingModel: true },
   });
 
-  const embeddingCfg = await resolveEmbeddingConfig(agentId, agent.embeddingModel);
-
   let queryVector: number[];
   try {
+    const embeddingCfg = await resolveEmbeddingConfig(agentId, agent.embeddingModel);
     const [vec] = await embed(
       [query],
       embeddingCfg.apiKey,

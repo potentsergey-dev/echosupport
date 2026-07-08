@@ -16,7 +16,7 @@ cp .env.example .env
 - You can complete install, readiness, admin login, and widget asset smoke checks without
   AI/STT provider keys.
 - Create an OpenRouter key for chat completions when you are ready to test real answers.
-- Optionally create an OpenAI or OpenRouter embeddings key.
+- Create an OpenAI or OpenRouter embeddings key when you are ready to index knowledge.
 - Optionally create a Deepgram key for voice transcription.
 - Local Qdrant is included in Compose, so Qdrant Cloud is not required.
 
@@ -59,7 +59,8 @@ work through these tabs:
 
 1. Profile: check the greeting, model, language, session TTL, and allowed website origins.
 2. API keys: save provider keys only when you want real chat, embeddings, or speech-to-text.
-3. Knowledge base: upload files or add URL sources, then run indexing and wait for `INDEXED`.
+3. Knowledge base: upload PDF, DOCX, TXT, MD, or HTML files, or add public `http`/`https`
+   URL sources. Run indexing and wait for `INDEXED`; `FAILED` items show the error inline.
 4. Embed: copy the widget code and test it on a page whose origin is listed in Profile.
 
 The global pages in the sidebar cover operator work after launch: Inbox for handoff,
@@ -113,5 +114,9 @@ For Internet deployment, terminate HTTPS at a reverse proxy and set
   `http://localhost:5173`; do not include a path.
 - Chat returns an LLM configuration error: set `OPENROUTER_API_KEY` or save an agent-specific
   OpenRouter key on the agent API keys tab.
+- Knowledge indexing fails with a provider-key message: add an OpenAI/OpenRouter embedding
+  key globally or on the agent API keys tab. Chat keys alone are not enough unless they are
+  also valid for embeddings.
 - Uploaded files or URL sources do not affect answers yet: open the agent Knowledge base tab,
-  run indexing, and check that files/sources move to `INDEXED`.
+  run indexing, and check that files/sources move to `INDEXED`. Then test the public widget
+  with a question that is directly covered by the indexed content.

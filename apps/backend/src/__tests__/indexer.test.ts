@@ -1,3 +1,5 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
+/* eslint-disable @typescript-eslint/unbound-method */
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 // ── Mock env ────────────────────────────────────────────────────────────────
@@ -110,10 +112,13 @@ vi.mock('../db/prisma.js', () => ({
 }));
 
 const { reindexAgent } = await import('../services/indexer.js');
+const { extractText } = await import('../services/text-extractor.js');
+const { prisma } = await import('../db/prisma.js');
 
 describe('indexer — Qdrant payload structure', () => {
   beforeEach(() => {
     capturedPoints.length = 0;
+    vi.mocked(extractText).mockResolvedValue('Hello world. This is a test document.');
   });
 
   it('writes full content (not just preview) into Qdrant payload for FILE chunks', async () => {
@@ -171,5 +176,24 @@ describe('indexer — Qdrant payload structure', () => {
       // Preview is always a prefix of content
       expect(content.startsWith(preview)).toBe(true);
     }
+  });
+
+  it('fails the indexing job when an item fails while preserving item-level status', async () => {
+    vi.mocked(extractText).mockRejectedValueOnce(new Error('Unsupported PDF content'));
+
+    await expect(reindexAgent('agent-1', 'job-1')).rejects.toThrow(/failed to index/i);
+
+    expect(prisma.document.update).toHaveBeenCalledWith({
+      where: { id: 'doc-1' },
+      data: { status: 'FAILED', errorMessage: 'Error: Unsupported PDF content' },
+    });
+    expect(prisma.knowledgeSource.update).toHaveBeenCalledWith({
+      where: { id: 'source-1' },
+      data: { status: 'INDEXED', pagesIndexed: 1, indexedAt: expect.any(Date) },
+    });
+    expect(prisma.job.update).toHaveBeenLastCalledWith({
+      where: { id: 'job-1' },
+      data: { progress: 100 },
+    });
   });
 });
