@@ -32,17 +32,23 @@
     <h1>EchoSupport Widget Demo</h1>
     <p>
       Виджет должен появиться в правом нижнем углу.<br />
-      Убедитесь, что backend запущен на <code>http://localhost:3000</code> и укажите ниже реальный
-      <code>agent-key</code> вашего агента.
+      По умолчанию demo использует Docker stack на <code>http://localhost:8080</code>. Передайте
+      реальный ключ агента через query string:
+      <code>?agentKey=pk_...&amp;apiBase=http://localhost:8080</code>.
     </p>
-    <p>Чтобы получить ключ: <code>GET /api/v1/admin/agents</code> → поле <code>publicKey</code>.</p>
+    <p>
+      Чтобы получить ключ: откройте <code>/admin</code>, выберите агента и скопируйте
+      <code>publicKey</code> из заголовка страницы.
+    </p>
 
     <script>
-      // Replace with your real agent key from the admin panel
-      window.__ECHO_AGENT_KEY__ = 'pk_REPLACE_ME';
-      window.__ECHO_API_BASE__ = 'http://localhost:3000';
+      const params = new URLSearchParams(window.location.search);
+
+      // Replace with your real agent key from the admin panel or pass ?agentKey=pk_...
+      window.__ECHO_AGENT_KEY__ = params.get('agentKey') || 'pk_REPLACE_ME';
+      window.__ECHO_API_BASE__ = params.get('apiBase') || 'http://localhost:8080';
     </script>
-    <script type="module" src="./dist/widget.js"></script>
+    <script type="module" src="./src/index.ts"></script>
     <script>
       document.addEventListener('DOMContentLoaded', function () {
         const widget = document.createElement('echo-support-widget');
