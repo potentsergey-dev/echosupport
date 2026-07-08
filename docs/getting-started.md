@@ -61,7 +61,8 @@ work through these tabs:
 2. API keys: save provider keys only when you want real chat, embeddings, or speech-to-text.
 3. Knowledge base: upload PDF, DOCX, TXT, MD, or HTML files, or add public `http`/`https`
    URL sources. Run indexing and wait for `INDEXED`; `FAILED` items show the error inline.
-4. Embed: copy the widget code and test it on a page whose origin is listed in Profile.
+4. Embed: copy the widget code or the public agent key and test it on a page whose origin
+   is listed in Profile.
 
 The global pages in the sidebar cover operator work after launch: Inbox for handoff,
 Specialists, Services, Appointments, and CSAT.
@@ -78,7 +79,8 @@ To smoke-test public session creation too, add an agent public key from the Embe
 SMOKE_BASE_URL=http://localhost:8080 SMOKE_AGENT_KEY=pk_your_agent_key pnpm smoke:install
 ```
 
-For the local widget demo, copy the public key shown in the agent header, run:
+For the local widget demo, add `http://localhost:5173` to the agent's allowed origins on
+the Profile tab. Then open the Embed tab, copy the public agent key, and run:
 
 ```bash
 pnpm --filter @echosupport/widget dev
@@ -111,9 +113,17 @@ For Internet deployment, terminate HTTPS at a reverse proxy and set
   owner password from `ADMIN_PASSWORD`.
 - Widget returns `Origin not allowed`: add the page origin on the agent Profile tab. Use the
   exact origin including scheme and port, for example `https://example.com` or
-  `http://localhost:5173`; do not include a path.
+  `http://localhost:5173`; do not include a path. EchoSupport normalizes accidental trailing
+  slashes and paths, but the scheme, host, and port must match the browser origin.
+- Widget shows `Invalid agent key`: open the agent Embed tab and copy the public agent key
+  again. Public keys start with `pk_`; provider API keys never go in the embed snippet.
+- Widget shows `Failed to fetch` or stays unavailable: confirm the backend public URL in the
+  snippet is reachable from the browser and that `/embed.js`, `/widget.js`, and
+  `/api/v1/health` load from the same public base URL.
 - Chat returns an LLM configuration error: set `OPENROUTER_API_KEY` or save an agent-specific
   OpenRouter key on the agent API keys tab.
+- Voice input returns an STT configuration error: add a Deepgram key for the default STT
+  provider, or switch the agent to Whisper and add an OpenAI key.
 - Knowledge indexing fails with a provider-key message: add an OpenAI/OpenRouter embedding
   key globally or on the agent API keys tab. Chat keys alone are not enough unless they are
   also valid for embeddings.

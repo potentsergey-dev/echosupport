@@ -17,13 +17,18 @@
     return;
   }
 
+  function appendWidget() {
+    if (document.querySelector('echo-support-widget')) return;
+    const el = document.createElement('echo-support-widget');
+    el.setAttribute('agent-key', agentKey);
+    el.setAttribute('api-base', apiBase);
+    document.body.appendChild(el);
+  }
+
   function mount() {
     if (customElements.get('echo-support-widget')) {
       // Widget bundle already loaded, just create the element
-      const el = document.createElement('echo-support-widget');
-      el.setAttribute('agent-key', agentKey);
-      el.setAttribute('api-base', apiBase);
-      document.body.appendChild(el);
+      appendWidget();
       return;
     }
 
@@ -31,11 +36,9 @@
     const s = document.createElement('script');
     s.src = scriptSrc;
     s.defer = true;
-    s.onload = function () {
-      const el = document.createElement('echo-support-widget');
-      el.setAttribute('agent-key', agentKey);
-      el.setAttribute('api-base', apiBase);
-      document.body.appendChild(el);
+    s.onload = appendWidget;
+    s.onerror = function () {
+      console.warn('[EchoSupport] Failed to load widget bundle:', scriptSrc);
     };
     document.head.appendChild(s);
   }

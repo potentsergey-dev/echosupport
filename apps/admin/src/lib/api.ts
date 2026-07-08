@@ -140,7 +140,9 @@ export function saveSecrets(
   });
 }
 
-export function getEmbedSnippet(id: string): Promise<{ snippet: string }> {
+export function getEmbedSnippet(
+  id: string,
+): Promise<{ snippet: string; agentKey: string; publicBaseUrl: string }> {
   return request(`/admin/agents/${id}/embed-snippet`);
 }
 

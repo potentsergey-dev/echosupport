@@ -21,32 +21,74 @@ import type {
 const VISITOR_KEY = 'es_visitor_id';
 
 function getVisitorId(): string {
-  let id = localStorage.getItem(VISITOR_KEY);
+  let id: string | null = null;
+  try {
+    id = localStorage.getItem(VISITOR_KEY);
+  } catch {
+    // Storage can be blocked in privacy-restricted embedded contexts.
+  }
   if (!id) {
     // Simple uuid-v4 without external library
     id = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
       const r = (Math.random() * 16) | 0;
       return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
     });
-    localStorage.setItem(VISITOR_KEY, id);
+    try {
+      localStorage.setItem(VISITOR_KEY, id);
+    } catch {
+      // Non-persistent visitor IDs still allow the widget to function.
+    }
   }
   return id;
 }
 
+function getApiBase(): string {
+  return apiBase.value.replace(/\/+$/, '');
+}
+
+async function parseErrorResponse(res: Response, fallback: string): Promise<string> {
+  const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
+  const error = body?.error;
+
+  if (typeof error === 'string' && error.trim()) return error;
+
+  if (error && typeof error === 'object') {
+    const fieldErrors = Object.entries(error as Record<string, unknown>)
+      .flatMap(([field, value]) => {
+        if (!Array.isArray(value)) return [];
+        return value
+          .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+          .map((message) => `${field}: ${message}`);
+      })
+      .join('; ');
+    if (fieldErrors) return fieldErrors;
+  }
+
+  return fallback;
+}
+
+function getPageContext(): { pageUrl?: string; pageReferrer?: string } {
+  const pageUrl = window.location.href;
+  const pageReferrer = document.referrer;
+  return {
+    ...(pageUrl.length <= 2000 ? { pageUrl } : {}),
+    ...(pageReferrer.length <= 2000 ? { pageReferrer } : {}),
+  };
+}
+
 export async function initSession(): Promise<void> {
   const visitorId = getVisitorId();
-  const res = await fetch(`${apiBase.value}/api/v1/public/sessions`, {
+  const res = await fetch(`${getApiBase()}/api/v1/public/sessions`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'X-Agent-Key': agentKey.value,
     },
-    body: JSON.stringify({ visitorId }),
+    body: JSON.stringify({ visitorId, ...getPageContext() }),
   });
 
   if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? 'Failed to create session');
+    throw new Error(await parseErrorResponse(res, 'Failed to create session'));
   }
 
   const data = (await res.json()) as {
@@ -82,7 +124,7 @@ export async function sendMessage(text: string): Promise<void> {
   messages.value = [...messages.value, { id: assistantId, role: 'assistant', text: '' }];
 
   try {
-    const res = await fetch(`${apiBase.value}/api/v1/public/sessions/${sid}/messages`, {
+    const res = await fetch(`${getApiBase()}/api/v1/public/sessions/${sid}/messages`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -92,7 +134,7 @@ export async function sendMessage(text: string): Promise<void> {
     });
 
     if (!res.ok || !res.body) {
-      throw new Error(`Request failed: ${res.status}`);
+      throw new Error(await parseErrorResponse(res, `Request failed: ${res.status}`));
     }
 
     const reader = res.body.getReader();
@@ -181,7 +223,7 @@ export async function sendAudio(audioBlob: Blob, mimeType: string): Promise<stri
   const form = new FormData();
   form.append('audio', audioBlob, `recording.${mimeType.split('/')[1] ?? 'webm'}`);
 
-  const res = await fetch(`${apiBase.value}/api/v1/public/sessions/${sid}/stt`, {
+  const res = await fetch(`${getApiBase()}/api/v1/public/sessions/${sid}/stt`, {
     method: 'POST',
     headers: { 'X-Agent-Key': agentKey.value },
     body: form,
@@ -270,7 +312,7 @@ export async function submitCsat(rating: 1 | -1, comment?: string): Promise<void
   const sid = sessionId.value;
   if (!sid) throw new Error('No active session');
   const normalizedComment = comment?.trim();
-  const res = await fetch(`${apiBase.value}/api/v1/public/sessions/${sid}/csat`, {
+  const res = await fetch(`${getApiBase()}/api/v1/public/sessions/${sid}/csat`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

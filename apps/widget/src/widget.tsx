@@ -45,7 +45,12 @@ export function Widget({ apiBase: base, agentKey: key }: WidgetProps) {
 
   if (initError) {
     console.error('[EchoSupport] Widget init error:', initError);
-    return null;
+    return (
+      <div class="fixed bottom-4 left-4 right-4 z-[9998] rounded-xl border border-red-200 bg-white px-4 py-3 text-sm text-gray-800 shadow-xl sm:bottom-6 sm:left-auto sm:right-6 sm:w-80">
+        <p class="font-semibold text-red-700">Чат временно недоступен</p>
+        <p class="mt-1 text-xs text-gray-500">{initError}</p>
+      </div>
+    );
   }
 
   return (

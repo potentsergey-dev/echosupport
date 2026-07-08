@@ -340,7 +340,7 @@ const agentRoutes: FastifyPluginAsync = async (fastify) => {
 
     const publicBaseUrl = env.PUBLIC_BASE_URL ?? env.APP_URL;
     const snippet = `<script src="${publicBaseUrl}/embed.js" data-agent-key="${agent.publicKey}" data-api-base="${publicBaseUrl}" defer></script>`;
-    return reply.send({ snippet });
+    return reply.send({ snippet, agentKey: agent.publicKey, publicBaseUrl });
   });
 };
 
