@@ -23,9 +23,6 @@ export function isAdminOriginAllowed(
   configuredOrigins: string,
 ): boolean {
   if (!origin) return true;
-  const allowed = configuredOrigins
-    .split(',')
-    .map((value) => value.trim())
-    .filter(Boolean);
-  return allowed.includes(origin);
+  const allowed = configuredOrigins.split(',').map(normalizeOrigin).filter(Boolean);
+  return allowed.includes(normalizeOrigin(origin));
 }

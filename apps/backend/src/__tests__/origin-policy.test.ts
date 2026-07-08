@@ -17,6 +17,7 @@ describe('origin policy', () => {
   it('allows non-browser admin clients but restricts browser origins', () => {
     expect(isAdminOriginAllowed(undefined, 'https://admin.example')).toBe(true);
     expect(isAdminOriginAllowed('https://admin.example', 'https://admin.example')).toBe(true);
+    expect(isAdminOriginAllowed('https://admin.example', 'https://admin.example/')).toBe(true);
     expect(isAdminOriginAllowed('https://evil.example', 'https://admin.example')).toBe(false);
   });
 });

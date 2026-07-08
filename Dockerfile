@@ -31,11 +31,13 @@ COPY --from=builder /app/apps/admin/dist ./apps/admin/dist
 COPY docker/backend-entrypoint.sh /usr/local/bin/echosupport-entrypoint
 
 RUN chmod +x /usr/local/bin/echosupport-entrypoint \
-  && mkdir -p /app/apps/backend/uploads
+  && mkdir -p /app/apps/backend/uploads \
+  && chown -R node:node /app/apps/backend/uploads
 
 WORKDIR /app/apps/backend
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
   CMD wget -qO- http://127.0.0.1:3000/api/v1/ready >/dev/null || exit 1
 
+USER node
 ENTRYPOINT ["echosupport-entrypoint"]

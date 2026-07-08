@@ -25,8 +25,9 @@ Never commit keys to Git or paste them into issues.
 ## 3. Configure secrets
 
 Edit `.env`. Replace the database password, JWT secret, encryption key, cron secret,
-initial owner credentials, and public URL. `MASTER_ENCRYPTION_KEY` must remain unchanged
-after data has been encrypted.
+initial owner credentials, and public URL. Startup rejects copied placeholder secrets and
+invalid admin origins. `MASTER_ENCRYPTION_KEY` must remain unchanged after data has been
+encrypted.
 
 Useful generators:
 
@@ -95,14 +96,18 @@ http://localhost:5173/demo.html?agentKey=pk_your_agent_key&apiBase=http://localh
 If you are testing against local backend dev instead of Docker, use
 `apiBase=http://localhost:3000`.
 
-For Internet deployment, terminate HTTPS at a reverse proxy and set
-`PUBLIC_BASE_URL` and `ADMIN_CORS_ORIGINS` to the HTTPS URL.
+For Internet deployment, terminate HTTPS at a reverse proxy and set `PUBLIC_BASE_URL`
+and `ADMIN_CORS_ORIGINS` to the HTTPS URL. Work through
+[Production Security Checklist](production-security.md) before exposing the app.
 
 ## Troubleshooting
 
 - `docker compose config` fails: check that every required value in `.env` has been
   replaced, especially `POSTGRES_PASSWORD`, `JWT_SECRET`, `MASTER_ENCRYPTION_KEY`,
   `CRON_SECRET`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD`.
+- Backend exits with `Invalid environment variables`: replace copied example secrets,
+  ensure `MASTER_ENCRYPTION_KEY` is exactly 64 hex characters, and set
+  `ADMIN_CORS_ORIGINS` to comma-separated trusted origins with no paths or wildcards.
 - `/api/v1/ready` returns `503`: inspect `docker compose logs backend postgres qdrant`.
   The backend waits for migrations, PostgreSQL, and Qdrant.
 - Backend logs show Prisma `P1000` after changing `POSTGRES_PASSWORD` or `POSTGRES_DB`:

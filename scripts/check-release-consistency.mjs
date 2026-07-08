@@ -33,9 +33,11 @@ if (!read('CHANGELOG.md').includes(`## [${expectedVersion}]`)) {
 }
 
 const schemaKeys = new Set(
-  [...read('apps/backend/src/config/env.ts').matchAll(/^\s{2}([A-Z][A-Z0-9_]+):\s*z\./gm)].map(
-    (match) => match[1],
-  ),
+  [
+    ...read('apps/backend/src/config/env-validation.ts').matchAll(
+      /^\s{4}([A-Z][A-Z0-9_]+):\s*z\./gm,
+    ),
+  ].map((match) => match[1]),
 );
 const exampleKeys = new Set(
   [...read('.env.example').matchAll(/^([A-Z][A-Z0-9_]*)=/gm)].map((match) => match[1]),

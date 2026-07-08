@@ -44,6 +44,19 @@ rotation. Empty agent key fields do not erase existing encrypted keys.
 Changing `MASTER_ENCRYPTION_KEY` makes existing encrypted keys unreadable. Back it up in
 a password manager.
 
+Production startup rejects copied example placeholders for runtime secrets. It also
+requires `MASTER_ENCRYPTION_KEY` to be exactly 64 hexadecimal characters and
+`ADMIN_CORS_ORIGINS` to contain comma-separated URL origins only. Do not include paths or
+wildcards. For example:
+
+```env
+PUBLIC_BASE_URL=https://support.example.com
+ADMIN_CORS_ORIGINS=https://support.example.com,https://admin.example.com
+```
+
+See [Production Security Checklist](production-security.md) for reverse proxy, TLS,
+backup, and exposure guidance.
+
 ## Smoke-check variables
 
 These variables are used only by `pnpm smoke:install` and are not backend runtime
