@@ -187,6 +187,16 @@ Common signals:
   perform a planned restore into a fresh stack.
 - `/api/v1/health` works but `/api/v1/ready` returns `503`: inspect the JSON component
   statuses and the `postgres` and `qdrant` logs. Readiness depends on both services.
+- Smoke script fails at `/api/v1/ready`: use the component summary printed by
+  `pnpm smoke:install` to decide whether to inspect PostgreSQL, Qdrant, or backend
+  startup first. The summary is sanitized and safe to include in a private bug report
+  after reviewing hostnames and customer data.
+- Uploads fail after upgrade: compare `MAX_DOCUMENT_SIZE_MB`, bundled nginx
+  `client_max_body_size`, and any outer proxy/CDN body limit. A mismatched proxy limit
+  can fail before the backend logs the request.
+- Operator Inbox or widget realtime updates fail after proxy changes: verify the proxy
+  preserves WebSocket `Upgrade` and `Connection` headers and keeps a long enough
+  `proxy_read_timeout` for `/api/v1/ws/operator` and `/api/v1/ws/visitor`.
 
 ## Rollback
 

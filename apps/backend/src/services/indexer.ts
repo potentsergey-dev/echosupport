@@ -11,6 +11,7 @@ import {
 import { extractText } from './text-extractor.js';
 import { chunkText } from './chunker.js';
 import { crawlUrl } from './crawler.js';
+import { sanitizeErrorMessage } from './error-sanitizer.js';
 import { resolveEmbeddingConfig } from './resolve-embedding.js';
 
 const EMBED_BATCH = 50;
@@ -117,7 +118,7 @@ export async function reindexAgent(agentId: string, jobId: string): Promise<void
       failedItems++;
       await prisma.document.update({
         where: { id: doc.id },
-        data: { status: 'FAILED', errorMessage: String(err) },
+        data: { status: 'FAILED', errorMessage: sanitizeErrorMessage(err) },
       });
     }
 
@@ -196,7 +197,7 @@ export async function reindexAgent(agentId: string, jobId: string): Promise<void
       failedItems++;
       await prisma.knowledgeSource.update({
         where: { id: source.id },
-        data: { status: 'FAILED', errorMessage: String(err) },
+        data: { status: 'FAILED', errorMessage: sanitizeErrorMessage(err) },
       });
     }
 

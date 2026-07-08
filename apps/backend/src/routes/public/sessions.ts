@@ -15,6 +15,7 @@ import { checkMessageLimit, checkSessionLimit } from '../../services/visitor-rat
 import { AGENT_TOOLS, executeTool } from '../../services/agent-tools.js';
 import { isBusinessHoursNow, getOutOfHoursMessage } from '../../services/business-hours.js';
 import { csatSubmissionSchema } from '../../services/csat.js';
+import { summarizeError } from '../../services/error-sanitizer.js';
 import { isOriginAllowed } from '../../services/origin-policy.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
@@ -476,7 +477,7 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
         summarizeIfNeeded(sessionId).catch(() => undefined);
       } catch (err: unknown) {
         req.log.error(
-          { err, sessionId, agentId: session.agent.id },
+          { err: summarizeError(err), sessionId, agentId: session.agent.id },
           'Failed to stream assistant response',
         );
         sseWrite(raw, 'error', {
@@ -563,7 +564,10 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
           const result = await transcribeWhisper(audioBuffer, mimeType, openaiKey);
           return reply.send(result);
         } catch (err) {
-          req.log.error({ err, agentId: agent.id }, 'Whisper transcription failed');
+          req.log.error(
+            { err: summarizeError(err), agentId: agent.id },
+            'Whisper transcription failed',
+          );
           return reply.status(502).send({ error: formatPublicTranscriptionError() });
         }
       }
@@ -580,7 +584,10 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
         const result = await transcribeDeepgram(audioBuffer, mimeType, deepgramKey);
         return reply.send(result);
       } catch (err) {
-        req.log.error({ err, agentId: agent.id }, 'Deepgram transcription failed');
+        req.log.error(
+          { err: summarizeError(err), agentId: agent.id },
+          'Deepgram transcription failed',
+        );
         return reply.status(502).send({ error: formatPublicTranscriptionError() });
       }
     },

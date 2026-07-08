@@ -30,11 +30,25 @@ import { startOperatorNotifier, stopOperatorNotifier } from './services/operator
 import { prisma } from './db/prisma.js';
 import { isAdminOriginAllowed } from './services/origin-policy.js';
 import { checkQdrantConnection } from './adapters/vectorstore/qdrant.js';
+import { summarizeError } from './services/error-sanitizer.js';
 
 export async function buildServer() {
   const app = Fastify({
     logger: {
       level: env.NODE_ENV === 'production' ? 'info' : 'debug',
+      redact: {
+        paths: [
+          'req.headers.authorization',
+          'req.headers.cookie',
+          'req.headers["x-agent-key"]',
+          'req.headers["x-cron-secret"]',
+          'request.headers.authorization',
+          'request.headers.cookie',
+          'request.headers["x-agent-key"]',
+          'request.headers["x-cron-secret"]',
+        ],
+        censor: '[redacted]',
+      },
       ...(env.NODE_ENV !== 'production' && {
         transport: {
           target: 'pino-pretty',
@@ -100,7 +114,7 @@ export async function buildServer() {
   await app.register(authPlugin);
 
   app.setErrorHandler((error: FastifyError, _req, reply) => {
-    app.log.error(error);
+    app.log.error({ err: summarizeError(error) }, 'Request failed');
     const statusCode = error.statusCode ?? 500;
     void reply.status(statusCode).send({
       error: statusCode >= 500 ? 'Internal Server Error' : error.message,

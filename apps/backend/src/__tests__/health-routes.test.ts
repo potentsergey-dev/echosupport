@@ -61,15 +61,20 @@ describe('health routes', () => {
     );
 
     const response = await app.inject({ method: 'GET', url: '/api/v1/ready' });
+    const body: { checks: { qdrant: { hint?: string } } } = response.json();
 
     expect(response.statusCode).toBe(503);
-    expect(response.json()).toMatchObject({
+    expect(body).toMatchObject({
       status: 'not_ready',
       checks: {
         database: { status: 'up' },
-        qdrant: { status: 'down', error: 'TypeError' },
+        qdrant: {
+          status: 'down',
+          error: 'TypeError',
+        },
       },
     });
+    expect(body.checks.qdrant.hint).toContain('QDRANT_URL');
     expect(response.body).not.toContain('private qdrant URL');
     await app.close();
   });

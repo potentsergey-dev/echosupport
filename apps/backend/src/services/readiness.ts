@@ -1,3 +1,5 @@
+import { summarizeError } from './error-sanitizer.js';
+
 export type DependencyName = 'database' | 'qdrant';
 
 export interface ReadinessDependency {
@@ -8,6 +10,7 @@ export interface ReadinessDependency {
 export interface DependencyStatus {
   status: 'up' | 'down';
   latencyMs: number;
+  hint?: string;
   error?: string;
 }
 
@@ -17,8 +20,14 @@ export interface ReadinessResult {
 }
 
 function publicError(error: unknown): string {
-  if (error instanceof Error && error.name) return error.name;
-  return 'DependencyError';
+  return summarizeError(error).name || 'DependencyError';
+}
+
+function dependencyHint(name: DependencyName): string {
+  if (name === 'database') {
+    return 'Check DATABASE_URL and PostgreSQL connectivity; in Docker run docker compose logs postgres backend.';
+  }
+  return 'Check QDRANT_URL, QDRANT_API_KEY if used, and Qdrant connectivity; in Docker run docker compose logs qdrant backend.';
 }
 
 export async function checkReadiness(
@@ -43,6 +52,7 @@ export async function checkReadiness(
             status: 'down',
             latencyMs: Math.round(performance.now() - startedAt),
             error: publicError(error),
+            hint: dependencyHint(name),
           },
         ] as const;
       }

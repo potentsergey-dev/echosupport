@@ -3,6 +3,14 @@ import { readFileSync } from 'node:fs';
 const baseUrl = new URL(process.env.SMOKE_BASE_URL ?? 'http://localhost:8080');
 const timeoutMs = Number(process.env.SMOKE_TIMEOUT_MS ?? 10_000);
 const agentKey = process.env.SMOKE_AGENT_KEY;
+const SECRET_PATTERNS = [
+  /\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+/gi,
+  /\b(sk|pk|or)-[A-Za-z0-9_-]{12,}\b/g,
+  /\bpk_[A-Za-z0-9_-]{8,}\b/g,
+  /([?&](?:api[_-]?key|key|token|secret|password|authorization)=)[^&#\s]+/gi,
+  /([a-z][a-z0-9+.-]*:\/\/)([^:@/\s]+):([^@/\s]+)@/gi,
+  /\b[A-Za-z0-9_-]{48,}\b/g,
+];
 
 function url(path) {
   return new URL(path, baseUrl).toString();
@@ -22,11 +30,46 @@ async function expectJson(path, expectedStatus, validate) {
   const response = await fetchWithTimeout(path, {
     headers: { accept: 'application/json' },
   });
-  if (response.status !== expectedStatus) {
-    throw new Error(`${path} returned ${response.status}, expected ${expectedStatus}`);
+  let body;
+  const text = await response.text();
+  try {
+    body = JSON.parse(text);
+  } catch {
+    body = undefined;
   }
-  const body = await response.json();
+  if (response.status !== expectedStatus) {
+    const details = summarizeJsonBody(body);
+    throw new Error(
+      `${path} returned ${response.status}, expected ${expectedStatus}${details ? `: ${details}` : ''}`,
+    );
+  }
   validate(body);
+}
+
+function sanitizeDiagnostic(value) {
+  return SECRET_PATTERNS.reduce((message, pattern) => {
+    if (pattern.source.startsWith('([?&]')) return message.replace(pattern, '$1[redacted]');
+    if (pattern.source.startsWith('([a-z]')) return message.replace(pattern, '$1[redacted]@');
+    if (pattern.source.startsWith('\\b(Bearer|Basic)'))
+      return message.replace(pattern, '$1 [redacted]');
+    return message.replace(pattern, '[redacted]');
+  }, String(value));
+}
+
+function summarizeJsonBody(body) {
+  if (!body || typeof body !== 'object') return '';
+  if (body.status === 'not_ready' && body.checks && typeof body.checks === 'object') {
+    return Object.entries(body.checks)
+      .map(([name, check]) => {
+        const status = check && typeof check === 'object' ? check.status : 'unknown';
+        const error = check && typeof check === 'object' && check.error ? ` (${check.error})` : '';
+        return `${name}=${status}${error}`;
+      })
+      .join(', ');
+  }
+  if ('error' in body) return sanitizeDiagnostic(body.error);
+  if ('status' in body) return `status=${sanitizeDiagnostic(body.status)}`;
+  return '';
 }
 
 async function expectText(path, validate) {
@@ -43,7 +86,9 @@ await expectJson('/api/v1/health', 200, (body) => {
 });
 
 await expectJson('/api/v1/ready', 200, (body) => {
-  if (body.status !== 'ready') throw new Error('/api/v1/ready did not report ready');
+  if (body.status !== 'ready') {
+    throw new Error(`/api/v1/ready did not report ready: ${summarizeJsonBody(body)}`);
+  }
 });
 
 await expectText('/admin', (body) => {
