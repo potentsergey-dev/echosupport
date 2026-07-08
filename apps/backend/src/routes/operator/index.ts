@@ -28,6 +28,7 @@ import { env } from '../../config/env.js';
 import { isSlotWithinWorkingHours } from '../../services/slot-finder.js';
 import { buildSuggestedReplyTranscript } from '../../services/suggested-reply.js';
 import { APPOINTMENT_STATUSES, getBookableServiceForSpecialist } from '../../services/booking.js';
+import { summarizeError } from '../../services/error-sanitizer.js';
 
 const OPERATOR_ROLES = ['OWNER', 'ADMIN', 'OPERATOR'];
 const CLOSED_SESSION_STATUSES = new Set(['RESOLVED', 'CLOSED']);
@@ -566,7 +567,7 @@ Only output the reply text — no meta-commentary.`;
         if (!draft) return reply.status(502).send({ error: 'LLM returned an empty reply' });
         return reply.send({ draft });
       } catch (err) {
-        fastify.log.error(err, 'suggest-reply LLM error');
+        fastify.log.error({ err: summarizeError(err) }, 'suggest-reply LLM error');
         return reply.status(502).send({ error: 'LLM unavailable' });
       }
     },

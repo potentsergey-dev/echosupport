@@ -1,4 +1,5 @@
 import { prisma } from '../db/prisma.js';
+import { sanitizeErrorMessage } from './error-sanitizer.js';
 import { reindexAgent } from './indexer.js';
 import { summarizeSession } from './conversation-summarizer.js';
 
@@ -36,7 +37,7 @@ async function processNextJob(): Promise<void> {
       jobPayload = job.payload;
     });
   } catch (err) {
-    console.error('[job-runner] Failed to claim job:', err);
+    console.error('[job-runner] Failed to claim job:', sanitizeErrorMessage(err));
     return;
   }
 
@@ -60,7 +61,7 @@ async function processNextJob(): Promise<void> {
     await prisma.job
       .update({
         where: { id: jobId },
-        data: { status: 'FAILED', errorMessage: String(err), finishedAt: new Date() },
+        data: { status: 'FAILED', errorMessage: sanitizeErrorMessage(err), finishedAt: new Date() },
       })
       .catch(() => undefined);
   } finally {
@@ -70,6 +71,8 @@ async function processNextJob(): Promise<void> {
 
 export function startJobRunner(): NodeJS.Timeout {
   return setInterval(() => {
-    processNextJob().catch((err) => console.error('[job-runner] Unexpected error:', err));
+    processNextJob().catch((err) =>
+      console.error('[job-runner] Unexpected error:', sanitizeErrorMessage(err)),
+    );
   }, 5_000);
 }

@@ -1,6 +1,7 @@
 import { embed } from '../adapters/embeddings/openai.js';
 import { searchPoints } from '../adapters/vectorstore/qdrant.js';
 import { prisma } from '../db/prisma.js';
+import { sanitizeErrorMessage } from './error-sanitizer.js';
 import { resolveEmbeddingConfig } from './resolve-embedding.js';
 
 export interface RetrievedChunk {
@@ -47,7 +48,7 @@ export async function retrieve(
     // Log the reason but do not block the conversation — LLM will answer without RAG context.
     console.warn(
       '[retriever] Embedding failed, skipping knowledge-base retrieval:',
-      embedErr instanceof Error ? embedErr.message : String(embedErr),
+      sanitizeErrorMessage(embedErr),
     );
     return [];
   }

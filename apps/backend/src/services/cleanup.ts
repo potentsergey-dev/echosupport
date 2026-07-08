@@ -1,4 +1,5 @@
 import { prisma } from '../db/prisma.js';
+import { sanitizeErrorMessage } from './error-sanitizer.js';
 
 // Advisory lock key used to prevent duplicate cleanup across multiple instances
 const CLEANUP_ADVISORY_LOCK = 42n;
@@ -37,7 +38,10 @@ export function startCleanupRunner(): NodeJS.Timeout {
         }
       })
       .catch((err) => {
-        console.error('[cleanup] Unexpected error during session cleanup:', err);
+        console.error(
+          '[cleanup] Unexpected error during session cleanup:',
+          sanitizeErrorMessage(err),
+        );
       });
   }, INTERVAL_MS);
 }

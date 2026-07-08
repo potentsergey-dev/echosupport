@@ -68,7 +68,8 @@ docker compose logs --tail=100 backend
 ## Readiness and Troubleshooting
 
 - `/api/v1/health` checks that the HTTP process is alive.
-- `/api/v1/ready` checks PostgreSQL and Qdrant and returns sanitized component status.
+- `/api/v1/ready` checks PostgreSQL and Qdrant and returns sanitized component status,
+  latency, error class, and static remediation hints.
 - If startup fails with `Invalid environment variables`, replace placeholders, fix
   `MASTER_ENCRYPTION_KEY`, and ensure `ADMIN_CORS_ORIGINS` contains only trusted origins.
 - If `/ready` returns `503`, inspect `docker compose logs backend postgres qdrant`.
@@ -76,3 +77,20 @@ docker compose logs --tail=100 backend
   `ADMIN_CORS_ORIGINS`.
 - If widget calls fail with `Origin not allowed`, add the page origin to the selected
   agent's allowed origins.
+
+## Safe Bug Reports
+
+Useful diagnostics:
+
+```bash
+docker compose ps
+curl -i https://support.example.com/api/v1/health
+curl -i https://support.example.com/api/v1/ready
+docker compose logs --tail=200 backend
+docker compose logs --tail=100 postgres qdrant nginx
+```
+
+Do not share `.env`, provider API keys, JWTs, cookies, public agent keys, database dumps,
+Qdrant snapshots, uploaded files, visitor transcripts, or screenshots containing customer
+data in public issues. Redact hostnames if they are sensitive. Backend diagnostics sanitize
+known secret patterns, but operators should still review logs before sharing them.

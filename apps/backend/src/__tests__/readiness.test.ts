@@ -31,8 +31,16 @@ describe('readiness', () => {
     );
 
     expect(result.status).toBe('not_ready');
-    expect(result.checks.database).toMatchObject({ status: 'down', error: 'Error' });
-    expect(result.checks.qdrant).toMatchObject({ status: 'down', error: 'TypeError' });
+    expect(result.checks.database).toMatchObject({
+      status: 'down',
+      error: 'Error',
+    });
+    expect(result.checks.qdrant).toMatchObject({
+      status: 'down',
+      error: 'TypeError',
+    });
+    expect(result.checks.database.hint).toContain('PostgreSQL');
+    expect(result.checks.qdrant.hint).toContain('Qdrant');
     expect(JSON.stringify(result)).not.toContain('secret');
     expect(JSON.stringify(result)).not.toContain('qdrant.internal');
   });

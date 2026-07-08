@@ -196,4 +196,20 @@ describe('indexer — Qdrant payload structure', () => {
       data: { progress: 100 },
     });
   });
+
+  it('sanitizes item-level indexing errors before saving them', async () => {
+    vi.mocked(extractText).mockRejectedValueOnce(
+      new Error('provider failed with Bearer sk-live-secret-token-123456789'),
+    );
+
+    await expect(reindexAgent('agent-1', 'job-1')).rejects.toThrow(/failed to index/i);
+
+    expect(prisma.document.update).toHaveBeenCalledWith({
+      where: { id: 'doc-1' },
+      data: {
+        status: 'FAILED',
+        errorMessage: 'Error: provider failed with Bearer [redacted]',
+      },
+    });
+  });
 });

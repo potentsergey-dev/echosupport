@@ -104,20 +104,41 @@ Before the first production upgrade, work through
 
 ## Troubleshooting
 
+- Start every incident with safe diagnostics:
+
+```bash
+docker compose ps
+curl -i http://localhost:8080/api/v1/health
+curl -i http://localhost:8080/api/v1/ready
+docker compose logs --tail=200 backend
+docker compose logs --tail=100 postgres qdrant nginx
+SMOKE_BASE_URL=http://localhost:8080 pnpm smoke:install
+```
+
+Share command output only after removing `.env` values, provider keys, JWTs, cookies,
+public agent keys, customer transcripts, uploaded document contents, and database dumps.
+Readiness output is intentionally sanitized; it reports component names, status, latency,
+and static hints rather than connection strings or raw exception messages.
+
 - `docker compose config` fails: check that every required value in `.env` has been
   replaced, especially `POSTGRES_PASSWORD`, `JWT_SECRET`, `MASTER_ENCRYPTION_KEY`,
   `CRON_SECRET`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD`.
 - Backend exits with `Invalid environment variables`: replace copied example secrets,
   ensure `MASTER_ENCRYPTION_KEY` is exactly 64 hex characters, and set
   `ADMIN_CORS_ORIGINS` to comma-separated trusted origins with no paths or wildcards.
-- `/api/v1/ready` returns `503`: inspect `docker compose logs backend postgres qdrant`.
-  The backend waits for migrations, PostgreSQL, and Qdrant.
+- `/api/v1/ready` returns `503`: inspect the JSON `checks` object. If `database` is
+  `down`, verify `DATABASE_URL`, `POSTGRES_*` values, and `docker compose logs postgres
+backend`. If `qdrant` is `down`, verify `QDRANT_URL`, `QDRANT_API_KEY` if used, and
+  `docker compose logs qdrant backend`. The backend waits for migrations, PostgreSQL,
+  and Qdrant.
 - Backend logs show Prisma `P1000` after changing `POSTGRES_PASSWORD` or `POSTGRES_DB`:
   the existing `postgres_data` volume was initialized with the old credentials. Restore
   the old values, or back up data and run `docker compose down --volumes` before starting
   a fresh install.
 - Login fails after changing `.env`: restart the backend; the seed step rotates the initial
   owner password from `ADMIN_PASSWORD`.
+- Admin login returns `Origin not allowed`: set `ADMIN_CORS_ORIGINS` to the exact admin
+  browser origin, with scheme and port and no path, then restart the backend.
 - Widget returns `Origin not allowed`: add the page origin on the agent Profile tab. Use the
   exact origin including scheme and port, for example `https://example.com` or
   `http://localhost:5173`; do not include a path. EchoSupport normalizes accidental trailing
@@ -129,6 +150,8 @@ Before the first production upgrade, work through
   `/api/v1/health` load from the same public base URL.
 - Chat returns an LLM configuration error: set `OPENROUTER_API_KEY` or save an agent-specific
   OpenRouter key on the agent API keys tab.
+- Chat returns an authentication, quota, or model error: verify the OpenRouter key, account
+  credits, and configured model. Do not paste provider keys into bug reports.
 - Voice input returns an STT configuration error: add a Deepgram key for the default STT
   provider, or switch the agent to Whisper and add an OpenAI key.
 - Knowledge indexing fails with a provider-key message: add an OpenAI/OpenRouter embedding
@@ -137,3 +160,10 @@ Before the first production upgrade, work through
 - Uploaded files or URL sources do not affect answers yet: open the agent Knowledge base tab,
   run indexing, and check that files/sources move to `INDEXED`. Then test the public widget
   with a question that is directly covered by the indexed content.
+- Uploads return `413` or fail before reaching the backend: keep `MAX_DOCUMENT_SIZE_MB`,
+  nginx `client_max_body_size`, and any outer proxy/CDN body limit aligned. The bundled
+  nginx config defaults to `50m`, matching the backend default.
+- Operator Inbox or widget realtime updates stall: check that the public URL proxies
+  `/api/v1/ws/operator` and `/api/v1/ws/visitor` with `Upgrade` and `Connection` headers.
+  Then inspect browser devtools for WebSocket status codes and `docker compose logs backend
+nginx` for rejected origins or auth failures.

@@ -67,3 +67,16 @@ configuration:
 | `SMOKE_BASE_URL`   | No       | `http://localhost:8080` | Running stack URL to check               |
 | `SMOKE_TIMEOUT_MS` | No       | `10000`                 | Per-request timeout for smoke checks     |
 | `SMOKE_AGENT_KEY`  | No       | —                       | Also create a public session if provided |
+
+When `/api/v1/ready` is not ready, `pnpm smoke:install` prints sanitized component
+details such as `database=down (Error)` or `qdrant=down (TypeError)`. It does not require
+provider API keys unless `SMOKE_AGENT_KEY` is set, and it should be run with a public
+agent key only from a private terminal session.
+
+## Upload and proxy limits
+
+The backend enforces `MAX_DOCUMENT_SIZE_MB` for knowledge uploads. The bundled nginx
+config also sets `client_max_body_size 50m`, matching the default. If you change
+`MAX_DOCUMENT_SIZE_MB`, update nginx and any outer proxy/CDN body limit to the same or
+higher value. A lower proxy limit usually appears as `413 Request Entity Too Large` before
+the backend route is reached.
