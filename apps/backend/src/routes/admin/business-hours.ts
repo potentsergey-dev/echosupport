@@ -7,11 +7,12 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../db/prisma.js';
+import { timeStringSchema } from '../../services/booking.js';
 
 const ScheduleEntrySchema = z.object({
   dayOfWeek: z.number().int().min(0).max(6),
-  from: z.string().regex(/^\d{2}:\d{2}$/),
-  to: z.string().regex(/^\d{2}:\d{2}$/),
+  from: timeStringSchema,
+  to: timeStringSchema,
 });
 
 const BusinessHoursSchema = z.object({
@@ -71,6 +72,13 @@ const businessHoursRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const { timezone, schedule, holidays, outOfHoursMessage, enabled } = result.data;
+      for (const entry of schedule) {
+        if (entry.from >= entry.to) {
+          return reply.status(400).send({
+            error: `Invalid range for dayOfWeek=${entry.dayOfWeek}: from must be before to`,
+          });
+        }
+      }
 
       const bh = await prisma.businessHours.upsert({
         where: { agentId: id },

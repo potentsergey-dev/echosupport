@@ -27,6 +27,7 @@ import { chatCompletion } from '../../adapters/llm/openrouter.js';
 import { env } from '../../config/env.js';
 import { isSlotWithinWorkingHours } from '../../services/slot-finder.js';
 import { buildSuggestedReplyTranscript } from '../../services/suggested-reply.js';
+import { APPOINTMENT_STATUSES, getBookableServiceForSpecialist } from '../../services/booking.js';
 
 const OPERATOR_ROLES = ['OWNER', 'ADMIN', 'OPERATOR'];
 const CLOSED_SESSION_STATUSES = new Set(['RESOLVED', 'CLOSED']);
@@ -579,9 +580,25 @@ Only output the reply text — no meta-commentary.`;
     const to = query['to'] ? new Date(query['to']) : undefined;
     const specialistId = query['specialistId'];
 
+    if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime()))) {
+      return reply.status(400).send({ error: 'Invalid date filter' });
+    }
+
     const where: Record<string, unknown> = { tenantId: req.user.tenantId };
-    if (status) where['status'] = status;
-    if (specialistId) where['specialistId'] = specialistId;
+    if (status) {
+      if (!APPOINTMENT_STATUSES.includes(status as (typeof APPOINTMENT_STATUSES)[number])) {
+        return reply.status(400).send({ error: 'Invalid appointment status' });
+      }
+      where['status'] = status;
+    }
+    if (specialistId) {
+      const specialist = await prisma.specialist.findFirst({
+        where: { id: specialistId, tenantId: req.user.tenantId },
+        select: { id: true },
+      });
+      if (!specialist) return reply.status(404).send({ error: 'Specialist not found' });
+      where['specialistId'] = specialistId;
+    }
     if (from || to) {
       where['startsAt'] = {
         ...(from && { gte: from }),
@@ -638,18 +655,28 @@ Only output the reply text — no meta-commentary.`;
     });
     if (!specialist) return reply.status(400).send({ error: 'Specialist not found' });
 
-    // Get duration from service
-    let durationMin = 60;
-    if (serviceId) {
-      const svc = await prisma.service.findUnique({
-        where: { id: serviceId },
-        select: { durationMin: true },
-      });
-      if (svc) durationMin = svc.durationMin;
+    const bookableService = await getBookableServiceForSpecialist({
+      tenantId: req.user.tenantId,
+      specialistId,
+      serviceId,
+    });
+    if (!bookableService) {
+      return reply.status(400).send({ error: 'Service not found for this specialist' });
     }
 
     const startsAt = new Date(startsAtStr);
-    const endsAt = new Date(startsAt.getTime() + durationMin * 60 * 1000);
+    if (startsAt.getTime() < Date.now()) {
+      return reply.status(400).send({ error: 'Appointment time must be in the future' });
+    }
+    const endsAt = new Date(startsAt.getTime() + bookableService.durationMin * 60 * 1000);
+
+    if (sessionId) {
+      const session = await prisma.session.findFirst({
+        where: { id: sessionId, agent: { tenantId: req.user.tenantId } },
+        select: { id: true },
+      });
+      if (!session) return reply.status(400).send({ error: 'Session not found' });
+    }
 
     // Validate slot is within specialist's working hours
     const withinHours = await isSlotWithinWorkingHours(specialistId, startsAt, endsAt);
@@ -676,7 +703,7 @@ Only output the reply text — no meta-commentary.`;
           data: {
             tenantId: req.user.tenantId,
             specialistId,
-            serviceId: serviceId ?? null,
+            serviceId: bookableService.id,
             visitorName,
             visitorPhone,
             visitorEmail: visitorEmail ?? null,
@@ -770,7 +797,17 @@ Only output the reply text — no meta-commentary.`;
 
       const durationMin = appt.service?.durationMin ?? 60;
       const startsAt = new Date(result.data.startsAt);
+      if (startsAt.getTime() < Date.now()) {
+        return reply.status(400).send({ error: 'Appointment time must be in the future' });
+      }
       const endsAt = new Date(startsAt.getTime() + durationMin * 60 * 1000);
+
+      const withinHours = await isSlotWithinWorkingHours(appt.specialistId, startsAt, endsAt);
+      if (!withinHours) {
+        return reply
+          .status(400)
+          .send({ error: "The requested time is outside the specialist's working hours." });
+      }
 
       // Slot conflict check (exclude this appointment)
       const conflict = await prisma.appointment.findFirst({

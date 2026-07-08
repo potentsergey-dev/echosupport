@@ -19,6 +19,7 @@ import { isBusinessHoursNow, getOutOfHoursMessage } from './business-hours.js';
 import { publishToOperators } from './realtime-hub.js';
 import { findAvailableSlots, isSlotWithinWorkingHours } from './slot-finder.js';
 import { normalizeQuickReplies } from './quick-replies.js';
+import { getBookableServiceForSpecialist } from './booking.js';
 
 // ── Tool schemas (OpenAI function-calling format) ─────────────────────────────
 
@@ -356,6 +357,16 @@ export async function executeTool(
         isActive: true,
       };
       if (specialistId) {
+        const specialist = await prisma.specialist.findFirst({
+          where: {
+            id: specialistId,
+            tenantId: agent.tenantId,
+            isActive: true,
+            OR: [{ agentId: null }, { agentId: ctx.agentId }],
+          },
+          select: { id: true },
+        });
+        if (!specialist) return { result: JSON.stringify({ services: [] }) };
         where['OR'] = [{ specialistId: null }, { specialistId }];
       }
 
@@ -387,9 +398,38 @@ export async function executeTool(
         };
       }
 
+      const agent = await prisma.agent.findUnique({
+        where: { id: ctx.agentId },
+        select: { tenantId: true },
+      });
+      if (!agent) return { result: JSON.stringify({ error: 'Agent not found' }) };
+
+      const specialist = await prisma.specialist.findFirst({
+        where: {
+          id: specialistId,
+          tenantId: agent.tenantId,
+          isActive: true,
+          OR: [{ agentId: null }, { agentId: ctx.agentId }],
+        },
+        select: { id: true },
+      });
+      if (!specialist) return { result: JSON.stringify({ error: 'Specialist not found' }) };
+
+      const bookableService = await getBookableServiceForSpecialist({
+        tenantId: agent.tenantId,
+        specialistId,
+        serviceId,
+      });
+      if (!bookableService) {
+        return { result: JSON.stringify({ error: 'Service not found for this specialist' }) };
+      }
+
       // Limit search range to 14 days for safety
       const from = new Date(dateFrom);
       let to = new Date(dateTo);
+      if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
+        return { result: JSON.stringify({ error: 'Invalid date range' }) };
+      }
       const maxTo = new Date(from);
       maxTo.setDate(maxTo.getDate() + 14);
       if (to > maxTo) to = maxTo;
@@ -397,7 +437,7 @@ export async function executeTool(
       // Set to end of day
       to.setHours(23, 59, 59, 999);
 
-      const slots = await findAvailableSlots(specialistId, serviceId, from, to);
+      const slots = await findAvailableSlots(specialistId, bookableService.id, from, to);
 
       // Return at most 20 slots to keep context manageable
       return { result: JSON.stringify({ slots: slots.slice(0, 20) }) };
@@ -428,17 +468,14 @@ export async function executeTool(
       if (isNaN(startsAt.getTime())) {
         return { result: JSON.stringify({ success: false, error: 'Invalid starts_at datetime' }) };
       }
-
-      // Determine end time from service duration or default
-      let durationMin = 60;
-      if (serviceId) {
-        const svc = await prisma.service.findUnique({
-          where: { id: serviceId },
-          select: { durationMin: true },
-        });
-        if (svc) durationMin = svc.durationMin;
+      if (startsAt.getTime() < Date.now()) {
+        return {
+          result: JSON.stringify({
+            success: false,
+            error: 'Appointment time must be in the future',
+          }),
+        };
       }
-      const endsAt = new Date(startsAt.getTime() + durationMin * 60 * 1000);
 
       // Verify specialist exists and belongs to agent's tenant
       const agent = await prisma.agent.findUnique({
@@ -448,10 +485,30 @@ export async function executeTool(
       if (!agent) return { result: JSON.stringify({ success: false, error: 'Agent not found' }) };
 
       const specialist = await prisma.specialist.findFirst({
-        where: { id: specialistId, tenantId: agent.tenantId, isActive: true },
+        where: {
+          id: specialistId,
+          tenantId: agent.tenantId,
+          isActive: true,
+          OR: [{ agentId: null }, { agentId: ctx.agentId }],
+        },
       });
       if (!specialist)
         return { result: JSON.stringify({ success: false, error: 'Specialist not found' }) };
+
+      const bookableService = await getBookableServiceForSpecialist({
+        tenantId: agent.tenantId,
+        specialistId,
+        serviceId,
+      });
+      if (!bookableService) {
+        return {
+          result: JSON.stringify({
+            success: false,
+            error: 'Service not found for this specialist',
+          }),
+        };
+      }
+      const endsAt = new Date(startsAt.getTime() + bookableService.durationMin * 60 * 1000);
 
       // Validate slot is within specialist's working hours
       const withinHours = await isSlotWithinWorkingHours(specialistId, startsAt, endsAt);
@@ -485,7 +542,7 @@ export async function executeTool(
               agentId: ctx.agentId,
               sessionId: ctx.sessionId,
               specialistId,
-              serviceId: serviceId ?? null,
+              serviceId: bookableService.id,
               visitorName: name,
               visitorPhone: phone,
               visitorEmail: email ?? null,

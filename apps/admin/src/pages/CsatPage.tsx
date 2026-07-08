@@ -41,17 +41,17 @@ export function CsatPage() {
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <SummaryCard label="Всего оценок" value={String(data.summary.total)} />
           <SummaryCard
-            label="Положительных 👍"
+            label="Положительных"
             value={String(data.summary.positive)}
             color="text-green-600"
           />
           <SummaryCard
-            label="Отрицательных 👎"
+            label="Отрицательных"
             value={String(data.summary.negative)}
             color="text-red-500"
           />
           <SummaryCard
-            label="NPS балл"
+            label="CSAT"
             value={data.summary.score !== null ? `${data.summary.score}%` : '—'}
             color={
               data.summary.score !== null && data.summary.score >= 70
