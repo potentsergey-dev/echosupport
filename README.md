@@ -30,7 +30,8 @@ cp .env.example .env
 ```
 
 Edit `.env`: replace every `replace-with-...` value and set `ADMIN_EMAIL` and
-`ADMIN_PASSWORD`. Set `OPENROUTER_API_KEY` now if you want chat answers immediately.
+`ADMIN_PASSWORD`. Provider keys can stay empty for the install smoke; set
+`OPENROUTER_API_KEY` now only if you want chat answers immediately.
 Generate secrets with:
 
 ```bash
@@ -57,10 +58,15 @@ Run the user-facing install smoke against a running stack:
 SMOKE_BASE_URL=http://localhost:8080 pnpm smoke:install
 ```
 
-After login, open the Embed page for the demo agent, copy its public key into
-`apps/widget/demo.html`, run `pnpm --filter @echosupport/widget dev`, and open the Vite
-demo URL shown in the terminal. Chat answers require an OpenRouter key, either globally
-in `.env` or saved on the agent.
+After login, open the demo agent and switch to the Embed tab. Copy the public key shown in
+the agent header, run `pnpm --filter @echosupport/widget dev`, and open the Vite demo URL
+with query parameters:
+
+```text
+http://localhost:5173/demo.html?agentKey=pk_your_agent_key&apiBase=http://localhost:8080
+```
+
+Chat answers require an OpenRouter key, either globally in `.env` or saved on the agent.
 
 > PostgreSQL passwords used inside `DATABASE_URL` must be URL-encoded. The provided
 > Compose configuration constructs the URL from `POSTGRES_*`; avoid reserved URL

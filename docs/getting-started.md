@@ -11,9 +11,11 @@ cd echosupport
 cp .env.example .env
 ```
 
-## 2. Obtain provider keys
+## 2. Decide whether to add provider keys now
 
-- Create an OpenRouter key for chat completions.
+- You can complete install, readiness, admin login, and widget asset smoke checks without
+  AI/STT provider keys.
+- Create an OpenRouter key for chat completions when you are ready to test real answers.
 - Optionally create an OpenAI or OpenRouter embeddings key.
 - Optionally create a Deepgram key for voice transcription.
 - Local Qdrant is included in Compose, so Qdrant Cloud is not required.
@@ -25,6 +27,13 @@ Never commit keys to Git or paste them into issues.
 Edit `.env`. Replace the database password, JWT secret, encryption key, cron secret,
 initial owner credentials, and public URL. `MASTER_ENCRYPTION_KEY` must remain unchanged
 after data has been encrypted.
+
+Useful generators:
+
+```bash
+openssl rand -base64 48   # JWT_SECRET and CRON_SECRET
+openssl rand -hex 32      # MASTER_ENCRYPTION_KEY
+```
 
 ## 4. Start
 
@@ -44,9 +53,11 @@ in `.env` and restarting the backend rotates that account's password.
 
 ## 5. Verify
 
-Sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `.env`, create or edit the demo
-agent, save provider keys, add a document, wait for indexing, then open the Embed page.
-Test the snippet on a page whose origin is listed in the agent's allowed origins.
+Sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `.env`. Compose automatically creates
+a demo tenant, the initial owner, and a `Demo Agent`. You can edit the demo agent or create
+a new one. Save provider keys only when you want real chat, embeddings, or speech-to-text.
+Add a document, wait for indexing, then open the agent's Embed tab. Test the snippet on a
+page whose origin is listed in the agent's allowed origins.
 
 You can run the install smoke against the stack:
 
@@ -60,13 +71,20 @@ To smoke-test public session creation too, add an agent public key from the Embe
 SMOKE_BASE_URL=http://localhost:8080 SMOKE_AGENT_KEY=pk_your_agent_key pnpm smoke:install
 ```
 
-For the local widget demo, copy that public key into `apps/widget/demo.html`, run:
+For the local widget demo, copy the public key shown in the agent header, run:
 
 ```bash
 pnpm --filter @echosupport/widget dev
 ```
 
-Then open the Vite URL printed in the terminal.
+Then open the Vite URL printed in the terminal with the public key and Docker API base:
+
+```text
+http://localhost:5173/demo.html?agentKey=pk_your_agent_key&apiBase=http://localhost:8080
+```
+
+If you are testing against local backend dev instead of Docker, use
+`apiBase=http://localhost:3000`.
 
 For Internet deployment, terminate HTTPS at a reverse proxy and set
 `PUBLIC_BASE_URL` and `ADMIN_CORS_ORIGINS` to the HTTPS URL.
