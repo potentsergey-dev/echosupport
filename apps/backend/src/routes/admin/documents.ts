@@ -17,11 +17,48 @@ const ALLOWED_MIME = new Set([
 ]);
 
 const AddSourceSchema = z.object({
-  url: z.string().url(),
+  url: z
+    .string()
+    .url()
+    .refine((url) => isPublicHttpUrl(url), {
+      message: 'URL must use http/https and cannot point to localhost or private IP ranges',
+    }),
   maxDepth: z.number().int().min(0).max(5).default(1),
   includePaths: z.array(z.string()).default([]),
   excludePaths: z.array(z.string()).default([]),
 });
+
+function isPrivateIpLiteral(hostname: string): boolean {
+  const host = hostname.replace(/^\[(.*)\]$/, '$1').toLowerCase();
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+  if (host === '::1' || host === '0:0:0:0:0:0:0:1') return true;
+  if (host.startsWith('fe80:') || host.startsWith('fc') || host.startsWith('fd')) return true;
+
+  const parts = host.split('.');
+  if (parts.length !== 4) return false;
+  const octets = parts.map((part) => Number(part));
+  if (octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
+  const [a, b] = octets as [number, number, number, number];
+
+  return (
+    a === 10 ||
+    a === 127 ||
+    a === 0 ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168)
+  );
+}
+
+function isPublicHttpUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    return !isPrivateIpLiteral(url.hostname);
+  } catch {
+    return false;
+  }
+}
 
 async function assertAgentOwnership(tenantId: string, agentId: string) {
   const agent = await prisma.agent.findFirst({ where: { id: agentId, tenantId } });
@@ -84,6 +121,14 @@ const documentRoutes: FastifyPluginAsync = async (fastify) => {
       chunks.push(chunk);
     }
     const buffer = Buffer.concat(chunks);
+    if (totalSize === 0) {
+      return reply.status(400).send({ error: 'Uploaded file is empty' });
+    }
+    if (totalSize > maxBytes || data.file.truncated) {
+      return reply.status(413).send({
+        error: `File too large (max ${env.MAX_DOCUMENT_SIZE_MB} MB)`,
+      });
+    }
 
     const ext = path.extname(data.filename) || '';
     const docId = randomUUID();
@@ -187,6 +232,16 @@ const documentRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post('/agents/:id/reindex', async (req, reply) => {
     const { id: agentId } = req.params as { id: string };
     await assertAgentOwnership(req.user.tenantId, agentId);
+
+    const [documentCount, sourceCount] = await Promise.all([
+      prisma.document.count({ where: { agentId } }),
+      prisma.knowledgeSource.count({ where: { agentId } }),
+    ]);
+    if (documentCount + sourceCount === 0) {
+      return reply.status(409).send({
+        error: 'Add at least one file or website source before starting indexing.',
+      });
+    }
 
     const job = await prisma.job.create({
       data: {

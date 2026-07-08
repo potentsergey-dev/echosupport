@@ -44,6 +44,7 @@ export async function reindexAgent(agentId: string, jobId: string): Promise<void
   });
 
   const totalItems = agent.documents.length + agent.sources.length;
+  let failedItems = 0;
   let processedItems = 0;
 
   const reportProgress = async () => {
@@ -113,6 +114,7 @@ export async function reindexAgent(agentId: string, jobId: string): Promise<void
         data: { status: 'INDEXED', chunksCount: chunks.length, indexedAt: new Date() },
       });
     } catch (err: unknown) {
+      failedItems++;
       await prisma.document.update({
         where: { id: doc.id },
         data: { status: 'FAILED', errorMessage: String(err) },
@@ -191,6 +193,7 @@ export async function reindexAgent(agentId: string, jobId: string): Promise<void
         data: { status: 'INDEXED', pagesIndexed: pages.length, indexedAt: new Date() },
       });
     } catch (err: unknown) {
+      failedItems++;
       await prisma.knowledgeSource.update({
         where: { id: source.id },
         data: { status: 'FAILED', errorMessage: String(err) },
@@ -202,4 +205,10 @@ export async function reindexAgent(agentId: string, jobId: string): Promise<void
   }
 
   await setJobProgress(jobId, 100);
+
+  if (failedItems > 0) {
+    throw new Error(
+      `${failedItems} knowledge item${failedItems === 1 ? '' : 's'} failed to index. Open the Knowledge base tab for item-level errors.`,
+    );
+  }
 }

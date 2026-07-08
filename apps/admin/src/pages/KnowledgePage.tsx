@@ -44,7 +44,13 @@ function StatusBadge({ status }: { status: DocumentStatus }) {
 
 // ── Reindex progress ──────────────────────────────────────────────────────────
 
-function ReindexProgress({ jobId, onDone }: { jobId: string; onDone: () => void }) {
+function ReindexProgress({
+  jobId,
+  onDone,
+}: {
+  jobId: string;
+  onDone: (result: { status: string; errorMessage?: string }) => void;
+}) {
   const [progress, setProgress] = useState(0);
   const [status, setStatus] = useState('RUNNING');
   const [errorMsg, setErrorMsg] = useState('');
@@ -73,12 +79,14 @@ function ReindexProgress({ jobId, onDone }: { jobId: string; onDone: () => void 
       setStatus(data.status);
       if (data.errorMessage) setErrorMsg(data.errorMessage);
       es.close();
-      onDone();
+      onDone(data);
     });
 
     es.addEventListener('error', () => {
       es.close();
-      setErrorMsg('Ошибка подключения к SSE');
+      const message = 'Ошибка подключения к SSE';
+      setErrorMsg(message);
+      onDone({ status: 'FAILED', errorMessage: message });
     });
 
     return () => es.close();
@@ -99,6 +107,11 @@ function ReindexProgress({ jobId, onDone }: { jobId: string; onDone: () => void 
       {errorMsg && <p className="mt-2 text-sm text-red-600">{errorMsg}</p>}
       {status === 'DONE' && (
         <p className="mt-2 text-sm font-medium text-green-600">Индексация завершена ✓</p>
+      )}
+      {status === 'FAILED' && (
+        <p className="mt-2 text-sm font-medium text-red-600">
+          Индексация завершилась с ошибкой. Проверьте элементы ниже.
+        </p>
       )}
     </div>
   );
@@ -185,6 +198,9 @@ function FilesBlock({ agentId }: { agentId: string }) {
                   {formatBytes(doc.sizeBytes)}
                   {doc.chunksCount != null && ` · ${doc.chunksCount} чанков`}
                 </p>
+                {doc.errorMessage && (
+                  <p className="mt-1 text-xs text-red-600">{doc.errorMessage}</p>
+                )}
               </div>
               <StatusBadge status={doc.status} />
               <button
@@ -283,6 +299,9 @@ function SourcesBlock({ agentId }: { agentId: string }) {
                   Глубина: {src.maxDepth}
                   {src.pagesIndexed != null && ` · ${src.pagesIndexed} страниц`}
                 </p>
+                {src.errorMessage && (
+                  <p className="mt-1 text-xs text-red-600">{src.errorMessage}</p>
+                )}
               </div>
               <StatusBadge status={src.status} />
               <button
@@ -397,10 +416,14 @@ export function KnowledgePage({ agentId }: { agentId: string }) {
     onError: (err) => addToast(err.message, 'error'),
   });
 
-  function handleReindexDone() {
+  function handleReindexDone(result: { status: string; errorMessage?: string }) {
     setReindexing(false);
     void qc.invalidateQueries({ queryKey: ['documents', agentId] });
     void qc.invalidateQueries({ queryKey: ['sources', agentId] });
+    if (result.status === 'FAILED') {
+      addToast(result.errorMessage ?? 'Индексация завершилась с ошибкой', 'error');
+      return;
+    }
     addToast('Индексация завершена');
   }
 

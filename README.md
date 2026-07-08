@@ -67,8 +67,9 @@ http://localhost:5173/demo.html?agentKey=pk_your_agent_key&apiBase=http://localh
 ```
 
 Chat answers require an OpenRouter key, either globally in `.env` or saved on the agent.
-Website origins for the deployed widget must be added on the agent Profile tab as exact
-origins such as `https://example.com`.
+Knowledge indexing also requires an embeddings-capable OpenAI/OpenRouter key. Website origins
+for the deployed widget must be added on the agent Profile tab as exact origins such as
+`https://example.com`.
 
 > PostgreSQL passwords used inside `DATABASE_URL` must be URL-encoded. The provided
 > Compose configuration constructs the URL from `POSTGRES_*`; avoid reserved URL

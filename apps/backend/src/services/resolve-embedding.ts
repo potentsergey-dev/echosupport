@@ -66,11 +66,17 @@ export async function resolveEmbeddingConfig(
   }
 
   // 6. Global: shared OpenRouter key (fallback)
-  return {
-    apiKey: env.OPENROUTER_API_KEY,
-    model: toOpenRouterModel(embeddingModel),
-    baseURL: env.OPENROUTER_BASE_URL,
-  };
+  if (env.OPENROUTER_API_KEY) {
+    return {
+      apiKey: env.OPENROUTER_API_KEY,
+      model: toOpenRouterModel(embeddingModel),
+      baseURL: env.OPENROUTER_BASE_URL,
+    };
+  }
+
+  throw new Error(
+    'No embedding API key configured. Add an OpenAI embedding key, OpenAI key, OpenRouter embedding key, or global embedding key before indexing knowledge.',
+  );
 }
 
 /**
