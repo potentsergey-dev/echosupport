@@ -16,3 +16,10 @@ Remove real API keys, personal data, and customer conversations.
 
 We aim to acknowledge a report within 7 days. Publication should wait until a fix or
 coordinated disclosure date is agreed.
+
+## Production Baseline
+
+Before exposing a self-hosted instance, replace all `.env.example` placeholders, use
+unique random secrets, configure exact `ADMIN_CORS_ORIGINS`, terminate TLS at a reverse
+proxy, and keep PostgreSQL/Qdrant private. The operational checklist is maintained in
+[docs/production-security.md](docs/production-security.md).
