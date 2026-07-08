@@ -18,6 +18,28 @@ import type {
 
 const BASE_URL = (import.meta.env['VITE_API_URL'] as string | undefined) ?? '';
 
+function formatApiError(error: unknown, fallback: string): string {
+  if (typeof error === 'string' && error.trim()) return error;
+
+  if (Array.isArray(error)) {
+    const messages = error.filter((item): item is string => typeof item === 'string' && !!item);
+    if (messages.length > 0) return messages.join(', ');
+  }
+
+  if (error && typeof error === 'object') {
+    const fieldErrors = Object.entries(error as Record<string, unknown>)
+      .flatMap(([field, value]) => {
+        if (!Array.isArray(value)) return [];
+        const messages = value.filter((item): item is string => typeof item === 'string' && !!item);
+        return messages.map((message) => `${field}: ${message}`);
+      })
+      .join('; ');
+    if (fieldErrors) return fieldErrors;
+  }
+
+  return fallback;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
@@ -39,8 +61,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
       window.location.href = '/admin/login';
       throw new Error('Session expired. Please log in again.');
     }
-    const body = (await res.json().catch(() => ({ error: res.statusText }))) as { error: string };
-    throw new Error(body.error ?? res.statusText);
+    const body = (await res.json().catch(() => ({ error: res.statusText }))) as {
+      error?: unknown;
+    };
+    throw new Error(formatApiError(body.error, res.statusText));
   }
 
   if (res.status === 204) return undefined as T;
