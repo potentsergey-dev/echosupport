@@ -99,6 +99,8 @@ If you are testing against local backend dev instead of Docker, use
 For Internet deployment, terminate HTTPS at a reverse proxy and set `PUBLIC_BASE_URL`
 and `ADMIN_CORS_ORIGINS` to the HTTPS URL. Work through
 [Production Security Checklist](production-security.md) before exposing the app.
+Before the first production upgrade, work through
+[Upgrade, Backup, and Restore](upgrade.md) and test a restore on a non-production host.
 
 ## Troubleshooting
 
