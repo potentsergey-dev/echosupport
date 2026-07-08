@@ -54,10 +54,16 @@ in `.env` and restarting the backend rotates that account's password.
 ## 5. Verify
 
 Sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `.env`. Compose automatically creates
-a demo tenant, the initial owner, and a `Demo Agent`. You can edit the demo agent or create
-a new one. Save provider keys only when you want real chat, embeddings, or speech-to-text.
-Add a document, wait for indexing, then open the agent's Embed tab. Test the snippet on a
-page whose origin is listed in the agent's allowed origins.
+a demo tenant, the initial owner, and a `Demo Agent`. Open that agent from the sidebar and
+work through these tabs:
+
+1. Profile: check the greeting, model, language, session TTL, and allowed website origins.
+2. API keys: save provider keys only when you want real chat, embeddings, or speech-to-text.
+3. Knowledge base: upload files or add URL sources, then run indexing and wait for `INDEXED`.
+4. Embed: copy the widget code and test it on a page whose origin is listed in Profile.
+
+The global pages in the sidebar cover operator work after launch: Inbox for handoff,
+Specialists, Services, Appointments, and CSAT.
 
 You can run the install smoke against the stack:
 
@@ -102,7 +108,10 @@ For Internet deployment, terminate HTTPS at a reverse proxy and set
   a fresh install.
 - Login fails after changing `.env`: restart the backend; the seed step rotates the initial
   owner password from `ADMIN_PASSWORD`.
-- Widget returns `Origin not allowed`: add the page origin to the agent's allowed origins,
-  or leave the list empty only for trusted local testing.
+- Widget returns `Origin not allowed`: add the page origin on the agent Profile tab. Use the
+  exact origin including scheme and port, for example `https://example.com` or
+  `http://localhost:5173`; do not include a path.
 - Chat returns an LLM configuration error: set `OPENROUTER_API_KEY` or save an agent-specific
-  OpenRouter key in the admin panel.
+  OpenRouter key on the agent API keys tab.
+- Uploaded files or URL sources do not affect answers yet: open the agent Knowledge base tab,
+  run indexing, and check that files/sources move to `INDEXED`.

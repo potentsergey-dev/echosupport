@@ -19,7 +19,7 @@ export function CsatPage() {
   });
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto max-w-6xl space-y-6 px-4 py-8">
       <div className="flex items-center justify-between">
         <h1 className="text-xl font-semibold text-gray-900">CSAT — Оценки качества</h1>
         <select
@@ -86,7 +86,7 @@ export function CsatPage() {
               {data?.ratings.length === 0 && (
                 <tr>
                   <td colSpan={5} className="px-4 py-8 text-center text-gray-400">
-                    Нет оценок
+                    Нет оценок. Они появятся после того, как посетители поставят CSAT в виджете.
                   </td>
                 </tr>
               )}

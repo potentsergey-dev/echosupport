@@ -60,7 +60,10 @@ function SessionList({
   return (
     <div className="flex flex-col divide-y divide-gray-100 overflow-y-auto">
       {sessions.length === 0 && (
-        <p className="px-4 py-8 text-center text-sm text-gray-400">Нет сессий</p>
+        <p className="px-4 py-8 text-center text-sm text-gray-400">
+          Нет сессий для выбранного фильтра. Новые обращения появятся здесь после запроса посетителя
+          на оператора.
+        </p>
       )}
       {sessions.map((s) => (
         <button

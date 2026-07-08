@@ -24,11 +24,12 @@ export function EmbedPage({ agentId }: { agentId: string }) {
       <section className="rounded-xl border border-gray-200 bg-white p-6">
         <div className="mb-4 flex items-start justify-between">
           <div>
-            <h3 className="text-base font-semibold text-gray-900">Embed-сниппет</h3>
+            <h3 className="text-base font-semibold text-gray-900">Embed-код виджета</h3>
             <p className="mt-1 text-sm text-gray-500">
               Вставьте этот код в тег{' '}
               <code className="font-mono text-indigo-600">&lt;head&gt;</code> или перед закрывающим{' '}
-              <code className="font-mono text-indigo-600">&lt;/body&gt;</code> вашего сайта.
+              <code className="font-mono text-indigo-600">&lt;/body&gt;</code> вашего сайта. Origin
+              сайта должен быть разрешён на вкладке «Профиль».
             </p>
           </div>
           <Button

@@ -48,7 +48,7 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: 'profile', label: 'Профиль', icon: <UserIcon size={16} /> },
   { id: 'secrets', label: 'API-ключи', icon: <KeyIcon size={16} /> },
   { id: 'knowledge', label: 'База знаний', icon: <BookOpenIcon size={16} /> },
-  { id: 'embed', label: 'Сниппет', icon: <CodeIcon size={16} /> },
+  { id: 'embed', label: 'Embed', icon: <CodeIcon size={16} /> },
   { id: 'sessions', label: 'Сессии', icon: <MessageSquareIcon size={16} /> },
   { id: 'business-hours', label: 'Часы работы', icon: <ClockIcon size={16} /> },
   { id: 'anti-abuse', label: 'Лимиты', icon: <ShieldIcon size={16} /> },
@@ -285,6 +285,9 @@ function ProfileBlock({ agent }: { agent: Agent }) {
               placeholder="openai/gpt-4o-mini"
               className="mt-1"
             />
+            <p className="mt-1 text-xs text-gray-400">
+              Модель должна быть доступна у выбранного провайдера, например OpenRouter.
+            </p>
           </div>
           <div>
             <Label htmlFor="language">Язык ответов</Label>
@@ -335,6 +338,9 @@ function ProfileBlock({ agent }: { agent: Agent }) {
                 onChange={(tags) => setForm((f) => ({ ...f, allowedOrigins: tags }))}
               />
             </div>
+            <p className="mt-1 text-xs text-gray-400">
+              Укажите origin сайта со схемой и портом: https://example.com. Путь страницы не нужен.
+            </p>
           </div>
         </div>
 
@@ -446,7 +452,8 @@ function SecretsBlock({ agentId }: { agentId: string }) {
     <section className="rounded-xl border border-gray-200 bg-white p-6">
       <h3 className="mb-1 text-base font-semibold text-gray-900">API-ключи</h3>
       <p className="mb-5 text-sm text-gray-500">
-        Ключи шифруются перед сохранением. Оставьте поле пустым, чтобы не менять текущий ключ.
+        Ключи шифруются перед сохранением. Оставьте поле пустым, чтобы не менять текущий ключ. Для
+        первого AI-ответа нужен OpenRouter API Key для чата или глобальный ключ в .env.
       </p>
       <div className="space-y-4">
         {secretFields.map(({ key, label, placeholder, hint }) => (

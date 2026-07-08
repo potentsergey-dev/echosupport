@@ -36,7 +36,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     if (res.status === 401) {
       clearToken();
-      window.location.href = '/login';
+      window.location.href = '/admin/login';
       throw new Error('Session expired. Please log in again.');
     }
     const body = (await res.json().catch(() => ({ error: res.statusText }))) as { error: string };
