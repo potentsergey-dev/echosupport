@@ -110,7 +110,12 @@ function ChatPanel({ sessionId }: { sessionId: string }) {
   const [isInternal, setIsInternal] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  const { data: session, isLoading } = useQuery<InboxSessionDetail>({
+  const {
+    data: session,
+    isLoading,
+    isError,
+    error,
+  } = useQuery<InboxSessionDetail>({
     queryKey: ['inbox-session', sessionId],
     queryFn: () => getInboxSession(sessionId),
     refetchInterval: 10000,
@@ -179,6 +184,21 @@ function ChatPanel({ sessionId }: { sessionId: string }) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="h-6 w-6 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <div className="flex h-full items-center justify-center px-6 text-center">
+        <div>
+          <p className="text-sm font-medium text-gray-900">Не удалось открыть разговор</p>
+          <p className="mt-1 text-xs text-gray-500">
+            {error instanceof Error
+              ? error.message
+              : 'Обновите страницу или выберите другой диалог.'}
+          </p>
+        </div>
       </div>
     );
   }
@@ -332,9 +352,13 @@ function ChatPanel({ sessionId }: { sessionId: string }) {
         </div>
       )}
 
-      {!canSend && session.status !== 'WAITING_OPERATOR' && (
+      {!canSend && (
         <div className="border-t border-gray-200 bg-gray-50 px-4 py-3 text-center text-xs text-gray-400">
-          {session.status === 'RESOLVED' ? 'Сессия завершена' : 'Только для чтения'}
+          {session.status === 'WAITING_OPERATOR'
+            ? 'Примите разговор, чтобы ответить посетителю или добавить внутреннюю заметку.'
+            : session.status === 'RESOLVED'
+              ? 'Сессия завершена'
+              : 'Только для чтения'}
         </div>
       )}
     </div>
@@ -348,8 +372,20 @@ export function InboxPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string>('WAITING_OPERATOR,WITH_OPERATOR');
   const wsRef = useRef<WebSocket | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const shouldReconnectRef = useRef(true);
 
-  const { data: sessions = [], isLoading } = useQuery<InboxSession[]>({
+  useEffect(() => {
+    selectedIdRef.current = selectedId;
+  }, [selectedId]);
+
+  const {
+    data: sessions = [],
+    isLoading,
+    isError,
+    error,
+  } = useQuery<InboxSession[]>({
     queryKey: ['inbox', statusFilter],
     queryFn: () => {
       const statuses = statusFilter.split(',');
@@ -367,6 +403,11 @@ export function InboxPage() {
   const connectWs = useCallback(() => {
     const token = getToken();
     if (!token) return;
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+    wsRef.current?.close();
 
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host;
@@ -384,8 +425,8 @@ export function InboxPage() {
           event.type === 'session:message'
         ) {
           void qc.invalidateQueries({ queryKey: ['inbox'] });
-          if (selectedId) {
-            void qc.invalidateQueries({ queryKey: ['inbox-session', selectedId] });
+          if (selectedIdRef.current) {
+            void qc.invalidateQueries({ queryKey: ['inbox-session', selectedIdRef.current] });
           }
         }
       } catch {
@@ -394,14 +435,21 @@ export function InboxPage() {
     };
 
     ws.onclose = () => {
-      // Reconnect after 5 seconds
-      setTimeout(connectWs, 5000);
+      if (shouldReconnectRef.current) {
+        reconnectTimerRef.current = setTimeout(connectWs, 5000);
+      }
     };
-  }, [qc, selectedId]);
+  }, [qc]);
 
   useEffect(() => {
+    shouldReconnectRef.current = true;
     connectWs();
     return () => {
+      shouldReconnectRef.current = false;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       wsRef.current?.close();
     };
   }, [connectWs]);
@@ -436,6 +484,15 @@ export function InboxPage() {
         {isLoading ? (
           <div className="flex justify-center py-8">
             <div className="h-5 w-5 animate-spin rounded-full border-2 border-indigo-600 border-t-transparent" />
+          </div>
+        ) : isError ? (
+          <div className="px-4 py-8 text-center">
+            <p className="text-sm font-medium text-gray-900">Не удалось загрузить входящие</p>
+            <p className="mt-1 text-xs text-gray-500">
+              {error instanceof Error
+                ? error.message
+                : 'Проверьте подключение и обновите страницу.'}
+            </p>
           </div>
         ) : (
           <SessionList sessions={sessions} selectedId={selectedId} onSelect={setSelectedId} />

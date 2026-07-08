@@ -396,6 +396,142 @@ describe('authentication and tenant isolation (PostgreSQL)', () => {
     await app.close();
   });
 
+  it('returns operator inbox fields expected by the admin UI and marks opened sessions read', async () => {
+    const app = await buildTestServer();
+    const headers = authorization(token(app, fixture, 'OPERATOR'));
+    await prisma.session.update({
+      where: { id: fixture.sessionA },
+      data: {
+        status: 'WAITING_OPERATOR',
+        visitorName: 'Ada Lovelace',
+        visitorContact: 'ada@example.com',
+        pageUrl: 'https://widget-a.example/pricing',
+        handoffReason: 'Needs billing help',
+        handoffRequestedAt: new Date('2026-07-08T10:00:00.000Z'),
+        internalNote: 'VIP lead',
+        unreadByOperator: 2,
+        tags: ['billing'],
+      },
+    });
+
+    const inbox = await app.inject({
+      method: 'GET',
+      url: '/api/v1/operator/inbox?status=WAITING_OPERATOR',
+      headers,
+    });
+
+    expect(inbox.statusCode).toBe(200);
+    const sessions = inbox.json<
+      Array<{
+        id: string;
+        agentName: string;
+        visitorContact: string | null;
+        handoffRequestedAt: string | null;
+        internalNote: string | null;
+        createdAt: string;
+      }>
+    >();
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({
+      id: fixture.sessionA,
+      agentName: 'Agent A',
+      visitorContact: 'ada@example.com',
+      handoffRequestedAt: '2026-07-08T10:00:00.000Z',
+      internalNote: 'VIP lead',
+    });
+    expect(sessions[0]?.createdAt).toEqual(expect.any(String));
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/api/v1/operator/sessions/${fixture.sessionA}`,
+      headers,
+    });
+
+    expect(detail.statusCode).toBe(200);
+    const detailBody = detail.json<{ agentName: string; createdAt: string }>();
+    expect(detailBody.agentName).toBe('Agent A');
+    expect(typeof detailBody.createdAt).toBe('string');
+    expect(await prisma.session.findUnique({ where: { id: fixture.sessionA } })).toMatchObject({
+      unreadByOperator: 0,
+    });
+    await app.close();
+  });
+
+  it('guards operator take, message and resolve mutations by session state', async () => {
+    const app = await buildTestServer();
+    const headers = authorization(token(app, fixture, 'OPERATOR'));
+
+    const prematureMessage = await app.inject({
+      method: 'POST',
+      url: `/api/v1/operator/sessions/${fixture.sessionA}/messages`,
+      headers,
+      payload: { content: 'I can help.' },
+    });
+    expect(prematureMessage.statusCode).toBe(409);
+    expect(prematureMessage.json()).toEqual({
+      error: 'Take the session before sending an operator message',
+    });
+
+    const take = await app.inject({
+      method: 'POST',
+      url: `/api/v1/operator/sessions/${fixture.sessionA}/take`,
+      headers,
+    });
+    expect(take.statusCode).toBe(200);
+    expect(await prisma.session.findUnique({ where: { id: fixture.sessionA } })).toMatchObject({
+      status: 'WITH_OPERATOR',
+      assignedOperatorId: fixture.operatorA,
+    });
+
+    const message = await app.inject({
+      method: 'POST',
+      url: `/api/v1/operator/sessions/${fixture.sessionA}/messages`,
+      headers,
+      payload: { content: '  I can help.  ' },
+    });
+    expect(message.statusCode).toBe(201);
+    expect(
+      message.json<{ content: string; authorType: string; isInternal: boolean }>(),
+    ).toMatchObject({
+      content: 'I can help.',
+      authorType: 'OPERATOR',
+      isInternal: false,
+    });
+    expect(await prisma.session.findUnique({ where: { id: fixture.sessionA } })).toMatchObject({
+      unreadByVisitor: 1,
+    });
+
+    const invalidResolve = await app.inject({
+      method: 'POST',
+      url: `/api/v1/operator/sessions/${fixture.sessionA}/resolve`,
+      headers,
+      payload: { internalNote: 123 },
+    });
+    expect(invalidResolve.statusCode).toBe(400);
+
+    const resolve = await app.inject({
+      method: 'POST',
+      url: `/api/v1/operator/sessions/${fixture.sessionA}/resolve`,
+      headers,
+      payload: { tags: ['done'], internalNote: 'Solved in chat' },
+    });
+    expect(resolve.statusCode).toBe(200);
+    expect(await prisma.session.findUnique({ where: { id: fixture.sessionA } })).toMatchObject({
+      status: 'RESOLVED',
+      tags: ['done'],
+      internalNote: 'Solved in chat',
+    });
+
+    const messageAfterResolve = await app.inject({
+      method: 'POST',
+      url: `/api/v1/operator/sessions/${fixture.sessionA}/messages`,
+      headers,
+      payload: { content: 'Still here?' },
+    });
+    expect(messageAfterResolve.statusCode).toBe(409);
+    await app.close();
+  });
+
   it('prevents an agent public key from modifying another agent session', async () => {
     const app = await buildTestServer();
     const response = await app.inject({

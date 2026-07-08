@@ -29,6 +29,7 @@ import { isSlotWithinWorkingHours } from '../../services/slot-finder.js';
 import { buildSuggestedReplyTranscript } from '../../services/suggested-reply.js';
 
 const OPERATOR_ROLES = ['OWNER', 'ADMIN', 'OPERATOR'];
+const CLOSED_SESSION_STATUSES = new Set(['RESOLVED', 'CLOSED']);
 
 const operatorRoutes: FastifyPluginAsync = async (fastify) => {
   // Shared preHandler: require operator role
@@ -67,11 +68,15 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
         status: true,
         visitorId: true,
         visitorName: true,
+        visitorContact: true,
         pageUrl: true,
+        startedAt: true,
         lastActiveAt: true,
         unreadByOperator: true,
         assignedOperatorId: true,
+        handoffRequestedAt: true,
         handoffReason: true,
+        internalNote: true,
         tags: true,
         agent: { select: { name: true } },
         messages: {
@@ -82,7 +87,13 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
       },
     });
 
-    return reply.send(sessions);
+    return reply.send(
+      sessions.map(({ agent, startedAt, ...session }) => ({
+        ...session,
+        agentName: agent.name,
+        createdAt: startedAt,
+      })),
+    );
   });
 
   // ── GET /operator/sessions/:id ─────────────────────────────────────────────
@@ -116,7 +127,11 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
       data: { unreadByOperator: 0 },
     });
 
-    return reply.send(session);
+    return reply.send({
+      ...session,
+      agentName: session.agent.name,
+      createdAt: session.startedAt,
+    });
   });
 
   // ── POST /operator/sessions/:id/take ──────────────────────────────────────
@@ -125,9 +140,12 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
 
     const session = await prisma.session.findFirst({
       where: { id, agent: { tenantId: req.user.tenantId } },
-      select: { id: true, agentId: true, agent: { select: { tenantId: true } } },
+      select: { id: true, agentId: true, status: true, agent: { select: { tenantId: true } } },
     });
     if (!session) return reply.status(404).send({ error: 'Session not found' });
+    if (CLOSED_SESSION_STATUSES.has(session.status)) {
+      return reply.status(409).send({ error: 'Cannot take a closed session' });
+    }
 
     const updated = await prisma.session.update({
       where: { id },
@@ -157,7 +175,7 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
 
   // ── POST /operator/sessions/:id/messages ──────────────────────────────────
   const SendMessageSchema = z.object({
-    content: z.string().min(1).max(10000),
+    content: z.string().trim().min(1).max(10000),
     isInternal: z.boolean().default(false),
   });
 
@@ -166,9 +184,14 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
 
     const session = await prisma.session.findFirst({
       where: { id, agent: { tenantId: req.user.tenantId } },
-      select: { id: true, agentId: true, agent: { select: { tenantId: true } } },
+      select: { id: true, agentId: true, status: true, agent: { select: { tenantId: true } } },
     });
     if (!session) return reply.status(404).send({ error: 'Session not found' });
+    if (session.status !== 'WITH_OPERATOR') {
+      return reply
+        .status(409)
+        .send({ error: 'Take the session before sending an operator message' });
+    }
 
     const result = SendMessageSchema.safeParse(req.body);
     if (!result.success) {
@@ -234,9 +257,12 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
 
       const session = await prisma.session.findFirst({
         where: { id, agent: { tenantId: req.user.tenantId } },
-        select: { id: true, agent: { select: { tenantId: true } } },
+        select: { id: true, status: true, agent: { select: { tenantId: true } } },
       });
       if (!session) return reply.status(404).send({ error: 'Session not found' });
+      if (CLOSED_SESSION_STATUSES.has(session.status)) {
+        return reply.status(409).send({ error: 'Cannot return a closed session to the agent' });
+      }
 
       const updated = await prisma.session.update({
         where: { id },
@@ -277,12 +303,18 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
 
     const session = await prisma.session.findFirst({
       where: { id, agent: { tenantId: req.user.tenantId } },
-      select: { id: true, agent: { select: { tenantId: true } } },
+      select: { id: true, status: true, agent: { select: { tenantId: true } } },
     });
     if (!session) return reply.status(404).send({ error: 'Session not found' });
 
     const result = ResolveSchema.safeParse(req.body);
-    const { tags, internalNote } = result.success ? result.data : {};
+    if (!result.success) {
+      return reply.status(400).send({ error: result.error.flatten().fieldErrors });
+    }
+    if (CLOSED_SESSION_STATUSES.has(session.status)) {
+      return reply.status(409).send({ error: 'Session is already closed' });
+    }
+    const { tags, internalNote } = result.data;
 
     const updated = await prisma.session.update({
       where: { id },
@@ -295,6 +327,12 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     publishToOperators(session.agent.tenantId, {
+      type: 'session:status',
+      tenantId: session.agent.tenantId,
+      sessionId: id,
+      status: 'RESOLVED',
+    });
+    publishToVisitor(id, {
       type: 'session:status',
       tenantId: session.agent.tenantId,
       sessionId: id,
