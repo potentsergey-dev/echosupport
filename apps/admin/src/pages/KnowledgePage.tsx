@@ -198,6 +198,12 @@ function FilesBlock({ agentId }: { agentId: string }) {
           ))}
         </div>
       )}
+      {docs.length === 0 && (
+        <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500">
+          Файлов пока нет. Загрузите документы с FAQ, условиями, ценами или инструкциями, затем
+          запустите индексацию.
+        </div>
+      )}
     </div>
   );
 }
@@ -241,6 +247,9 @@ function SourcesBlock({ agentId }: { agentId: string }) {
             placeholder="https://docs.example.com"
             type="url"
           />
+          <p className="mt-1 text-xs text-gray-400">
+            Добавляйте публичные страницы, которые можно индексировать без входа.
+          </p>
         </div>
         <div className="w-28">
           <Input
@@ -285,6 +294,11 @@ function SourcesBlock({ agentId }: { agentId: string }) {
               </button>
             </div>
           ))}
+        </div>
+      )}
+      {sources.length === 0 && (
+        <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-5 text-sm text-gray-500">
+          URL-источников пока нет. Добавьте сайт или документацию, затем нажмите «Проиндексировать».
         </div>
       )}
     </div>
@@ -394,7 +408,12 @@ export function KnowledgePage({ agentId }: { agentId: string }) {
     <div className="space-y-6">
       {/* Reindex button */}
       <div className="flex items-center justify-between">
-        <h3 className="text-base font-semibold text-gray-900">База знаний</h3>
+        <div>
+          <h3 className="text-base font-semibold text-gray-900">База знаний</h3>
+          <p className="mt-1 text-sm text-gray-500">
+            Источники используются в ответах после загрузки и успешной индексации.
+          </p>
+        </div>
         <Button
           loading={reindexMutation.isPending}
           disabled={reindexing}

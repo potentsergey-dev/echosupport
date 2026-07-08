@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClientProvider } from '@tanstack/react-query';
 import { queryClient } from './lib/query-client';
 import { ProtectedRoute } from './components/ProtectedRoute';
+import { Layout } from './components/Layout';
 import { LoginPage } from './pages/LoginPage';
 import { AgentSettingsPage } from './pages/AgentSettingsPage';
 import { AgentsIndexPage } from './pages/AgentsIndexPage';
@@ -37,7 +38,9 @@ export function App() {
             path="/inbox"
             element={
               <ProtectedRoute>
-                <InboxPage />
+                <Layout>
+                  <InboxPage />
+                </Layout>
               </ProtectedRoute>
             }
           />
@@ -45,7 +48,9 @@ export function App() {
             path="/specialists"
             element={
               <ProtectedRoute>
-                <SpecialistsPage />
+                <Layout>
+                  <SpecialistsPage />
+                </Layout>
               </ProtectedRoute>
             }
           />
@@ -53,7 +58,9 @@ export function App() {
             path="/services"
             element={
               <ProtectedRoute>
-                <ServicesPage />
+                <Layout>
+                  <ServicesPage />
+                </Layout>
               </ProtectedRoute>
             }
           />
@@ -61,7 +68,9 @@ export function App() {
             path="/appointments"
             element={
               <ProtectedRoute>
-                <AppointmentsPage />
+                <Layout>
+                  <AppointmentsPage />
+                </Layout>
               </ProtectedRoute>
             }
           />
@@ -69,7 +78,9 @@ export function App() {
             path="/csat"
             element={
               <ProtectedRoute>
-                <CsatPage />
+                <Layout>
+                  <CsatPage />
+                </Layout>
               </ProtectedRoute>
             }
           />

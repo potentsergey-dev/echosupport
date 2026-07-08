@@ -27,7 +27,10 @@ export function AgentsIndexPage() {
         ) : agents.length === 0 ? (
           <div className="text-center">
             <p className="text-gray-500">Нет агентов.</p>
-            <p className="mt-1 text-sm text-gray-400">Нажмите «+ Новый агент» в боковом меню.</p>
+            <p className="mt-1 text-sm text-gray-400">
+              Нажмите «Новый агент» в боковом меню, затем заполните профиль, API-ключи, базу знаний
+              и Embed-код.
+            </p>
           </div>
         ) : null}
       </div>

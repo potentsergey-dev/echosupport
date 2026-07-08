@@ -32,6 +32,10 @@
 Agent-specific provider keys saved in the admin panel are encrypted with
 `MASTER_ENCRYPTION_KEY` and override global provider keys.
 
+Use global provider keys in `.env` when every agent can share the same provider account.
+Use the agent API keys tab when a tenant or agent needs separate billing, limits, or
+rotation. Empty agent key fields do not erase existing encrypted keys.
+
 Changing `MASTER_ENCRYPTION_KEY` makes existing encrypted keys unreadable. Back it up in
 a password manager.
 
