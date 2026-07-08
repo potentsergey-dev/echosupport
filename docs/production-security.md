@@ -51,7 +51,9 @@ ADMIN_CORS_ORIGINS=https://support.example.com,https://admin.example.com
 
 ## Backups and Upgrades
 
-- Back up PostgreSQL, Qdrant, uploads, and `.env` before upgrades.
+- Back up PostgreSQL, Qdrant, uploads, and `.env` before upgrades. Use the exact Compose
+  commands in [Upgrade, Backup, and Restore](upgrade.md), and confirm volume names if you
+  use a custom Compose project name.
 - Verify restore procedures on a non-production host.
 - Run `docker compose config --quiet` before rollout.
 - After upgrade, check:
