@@ -4,6 +4,25 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) conve
 
 ## [Unreleased]
 
+## [1.0.3] - 2026-07-08
+
+### Changed
+
+- Hardened knowledge and RAG workflows with clearer embedding prerequisites, safer document
+  extraction/indexing failures, better admin status feedback, and expanded route/indexer
+  coverage.
+- Hardened booking and CSAT workflows with stricter service, specialist, business-hours, and
+  booking validation plus focused coverage for appointment edge cases.
+- Hardened widget and embed flows with clearer embed guidance, stricter origin matching, better
+  widget/demo configuration, and public-session failure handling.
+- Tightened production security defaults with runtime environment validation, safer production
+  startup requirements, documented secret/CORS settings, and release consistency checks for
+  configuration coverage.
+- Expanded backup, restore, and upgrade runbooks for Docker Compose deployments, including
+  database, uploads, Qdrant, rollback, and post-upgrade checks.
+- Improved diagnostics and troubleshooting with sanitized server errors, richer health/readiness
+  details, install smoke diagnostics, and observability/supportability documentation.
+
 ## [1.0.2] - 2026-07-07
 
 ### Changed
