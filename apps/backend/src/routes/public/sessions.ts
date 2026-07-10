@@ -48,22 +48,56 @@ function getErrorMessage(err: unknown): string {
     return err.message.trim();
   }
 
-  if (
-    typeof err === 'object' &&
-    err !== null &&
-    'message' in err &&
-    typeof err.message === 'string' &&
-    err.message.trim()
-  ) {
+  if (typeof err !== 'object' || err === null) return '';
+
+  if ('message' in err && typeof err.message === 'string' && err.message.trim()) {
     return err.message.trim();
+  }
+
+  const nested = 'error' in err ? err.error : undefined;
+  if (
+    typeof nested === 'object' &&
+    nested !== null &&
+    'message' in nested &&
+    typeof nested.message === 'string' &&
+    nested.message.trim()
+  ) {
+    return nested.message.trim();
+  }
+
+  if ('status' in err && typeof err.status === 'number') {
+    return `HTTP ${err.status}`;
   }
 
   return '';
 }
 
+function getErrorStatus(err: unknown): number | null {
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    'status' in err &&
+    typeof err.status === 'number'
+  ) {
+    return err.status;
+  }
+  return null;
+}
+
 function isToolCompatibilityError(err: unknown): boolean {
   const message = getErrorMessage(err);
-  return /model|not found|unsupported|tool|function/i.test(message);
+  if (
+    /api key|unauthorized|authentication|auth|credit|quota|rate limit|insufficient/i.test(message)
+  ) {
+    return false;
+  }
+  const status = getErrorStatus(err);
+  return (
+    /model|not found|unsupported|tool|function|HTTP 400|HTTP 404|HTTP 422/i.test(message) ||
+    status === 400 ||
+    status === 404 ||
+    status === 422
+  );
 }
 
 function formatPublicChatError(err: unknown): string {

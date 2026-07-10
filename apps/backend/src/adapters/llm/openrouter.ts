@@ -25,20 +25,52 @@ export interface StreamResult {
 
 function getErrorMessage(err: unknown): string {
   if (err instanceof Error && err.message.trim()) return err.message.trim();
-  if (
-    typeof err === 'object' &&
-    err !== null &&
-    'message' in err &&
-    typeof err.message === 'string' &&
-    err.message.trim()
-  ) {
+  if (typeof err !== 'object' || err === null) return '';
+  if ('message' in err && typeof err.message === 'string' && err.message.trim()) {
     return err.message.trim();
   }
+  const nested = 'error' in err ? err.error : undefined;
+  if (
+    typeof nested === 'object' &&
+    nested !== null &&
+    'message' in nested &&
+    typeof nested.message === 'string' &&
+    nested.message.trim()
+  ) {
+    return nested.message.trim();
+  }
+  if ('status' in err && typeof err.status === 'number') return `HTTP ${err.status}`;
   return '';
 }
 
+function getErrorStatus(err: unknown): number | null {
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    'status' in err &&
+    typeof err.status === 'number'
+  ) {
+    return err.status;
+  }
+  return null;
+}
+
 function isStreamOptionsCompatibilityError(err: unknown): boolean {
-  return /not found|unsupported|stream_options|include_usage/i.test(getErrorMessage(err));
+  const message = getErrorMessage(err);
+  if (
+    /api key|unauthorized|authentication|auth|credit|quota|rate limit|insufficient/i.test(message)
+  ) {
+    return false;
+  }
+  const status = getErrorStatus(err);
+  return (
+    /not found|unsupported|stream_options|include_usage|HTTP 400|HTTP 404|HTTP 422/i.test(
+      message,
+    ) ||
+    status === 400 ||
+    status === 404 ||
+    status === 422
+  );
 }
 
 function createClient(apiKey: string): OpenAI {
