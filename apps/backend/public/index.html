@@ -1,0 +1,908 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>EchoSupport Demo - Open-source AI customer support</title>
+    <meta
+      name="description"
+      content="Try EchoSupport, an open-source AI support widget with knowledge answers, operator handoff, CSAT, and booking-ready workflows."
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #17201f;
+        --muted: #52605d;
+        --line: #d9e1de;
+        --paper: #fbfcfa;
+        --surface: #ffffff;
+        --teal: #087f7a;
+        --teal-dark: #075c59;
+        --coral: #e45d48;
+        --amber: #d99b20;
+        --mint: #dff5ed;
+        --blue: #2b6cb0;
+        --shadow: 0 18px 60px rgba(23, 32, 31, 0.14);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        background: var(--paper);
+        color: var(--ink);
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          'Segoe UI',
+          sans-serif;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .site-header {
+        position: fixed;
+        inset: 0 0 auto;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 20px;
+        padding: 16px clamp(18px, 5vw, 64px);
+        background: rgba(251, 252, 250, 0.88);
+        border-bottom: 1px solid rgba(217, 225, 222, 0.78);
+        backdrop-filter: blur(16px);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 800;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 34px;
+        height: 34px;
+        place-items: center;
+        border-radius: 8px;
+        background: var(--ink);
+        color: white;
+        font-weight: 900;
+      }
+
+      .nav-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+
+      .nav-actions a {
+        color: var(--muted);
+        font-size: 14px;
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .nav-actions .primary-link {
+        color: white;
+        background: var(--teal);
+        border-radius: 8px;
+        padding: 10px 14px;
+      }
+
+      .hero {
+        position: relative;
+        min-height: 92vh;
+        overflow: hidden;
+        padding: 112px clamp(18px, 5vw, 64px) 56px;
+        border-bottom: 1px solid var(--line);
+        background:
+          linear-gradient(
+            90deg,
+            rgba(251, 252, 250, 0.97) 0%,
+            rgba(251, 252, 250, 0.86) 42%,
+            rgba(251, 252, 250, 0.38) 100%
+          ),
+          radial-gradient(circle at 80% 24%, rgba(223, 245, 237, 0.9), transparent 34%), #eef3f0;
+      }
+
+      .hero-scene {
+        position: absolute;
+        inset: 86px clamp(16px, 4vw, 52px) 34px 38%;
+        display: grid;
+        grid-template-columns: minmax(220px, 0.8fr) minmax(260px, 1fr);
+        gap: 18px;
+        align-items: stretch;
+        opacity: 0.96;
+      }
+
+      .queue,
+      .conversation,
+      .signal-strip,
+      .source-pane {
+        border: 1px solid rgba(23, 32, 31, 0.12);
+        background: rgba(255, 255, 255, 0.82);
+        box-shadow: var(--shadow);
+        backdrop-filter: blur(14px);
+      }
+
+      .queue {
+        align-self: end;
+        min-height: 430px;
+        padding: 18px;
+        border-radius: 8px;
+      }
+
+      .conversation {
+        min-height: 500px;
+        padding: 18px;
+        border-radius: 8px;
+      }
+
+      .scene-label {
+        margin-bottom: 16px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .ticket,
+      .message,
+      .source-row {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .ticket {
+        margin-bottom: 12px;
+        padding: 12px;
+      }
+
+      .ticket strong,
+      .source-row strong {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 14px;
+      }
+
+      .ticket span,
+      .source-row span {
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      .status-line {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        margin-top: 10px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .dot {
+        width: 9px;
+        height: 9px;
+        border-radius: 999px;
+        background: var(--teal);
+      }
+
+      .dot.coral {
+        background: var(--coral);
+      }
+
+      .dot.amber {
+        background: var(--amber);
+      }
+
+      .message {
+        max-width: 82%;
+        margin-bottom: 14px;
+        padding: 13px 14px;
+        line-height: 1.5;
+      }
+
+      .message.visitor {
+        margin-left: auto;
+        background: #eff7ff;
+        border-color: #cddff2;
+      }
+
+      .message.agent {
+        background: #f2fbf7;
+        border-color: #cdeadd;
+      }
+
+      .message small {
+        display: block;
+        margin-bottom: 4px;
+        color: var(--muted);
+        font-weight: 800;
+      }
+
+      .source-pane {
+        position: absolute;
+        right: 8%;
+        bottom: 52px;
+        width: min(360px, 32vw);
+        padding: 14px;
+        border-radius: 8px;
+      }
+
+      .source-row {
+        padding: 12px;
+      }
+
+      .hero-copy {
+        position: relative;
+        z-index: 2;
+        max-width: 650px;
+        padding-top: 7vh;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        margin-bottom: 18px;
+        color: var(--teal-dark);
+        font-size: 13px;
+        font-weight: 900;
+        text-transform: uppercase;
+      }
+
+      .eyebrow::before {
+        content: '';
+        width: 24px;
+        height: 3px;
+        border-radius: 999px;
+        background: var(--coral);
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        max-width: 620px;
+        margin-bottom: 22px;
+        font-size: clamp(54px, 8vw, 104px);
+        line-height: 0.92;
+        letter-spacing: 0;
+      }
+
+      .hero-copy p {
+        max-width: 590px;
+        color: var(--muted);
+        font-size: clamp(19px, 2vw, 24px);
+        line-height: 1.46;
+      }
+
+      .hero-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+        margin-top: 30px;
+      }
+
+      .button {
+        display: inline-flex;
+        min-height: 46px;
+        align-items: center;
+        justify-content: center;
+        border: 1px solid var(--ink);
+        border-radius: 8px;
+        padding: 12px 18px;
+        font-weight: 800;
+        text-decoration: none;
+      }
+
+      .button.primary {
+        border-color: var(--teal);
+        background: var(--teal);
+        color: white;
+      }
+
+      .button.secondary {
+        background: rgba(255, 255, 255, 0.74);
+      }
+
+      .hero-metrics {
+        display: grid;
+        max-width: 680px;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 14px;
+        margin-top: 48px;
+      }
+
+      .metric {
+        border-top: 3px solid var(--ink);
+        padding-top: 12px;
+      }
+
+      .metric strong {
+        display: block;
+        margin-bottom: 6px;
+        font-size: 20px;
+      }
+
+      .metric span {
+        color: var(--muted);
+        font-size: 14px;
+        line-height: 1.35;
+      }
+
+      main section {
+        padding: 72px clamp(18px, 5vw, 64px);
+      }
+
+      .section-head {
+        max-width: 780px;
+        margin-bottom: 34px;
+      }
+
+      .section-head h2 {
+        margin-bottom: 14px;
+        font-size: clamp(34px, 5vw, 58px);
+        line-height: 1;
+      }
+
+      .section-head p {
+        color: var(--muted);
+        font-size: 19px;
+        line-height: 1.55;
+      }
+
+      .pain-grid,
+      .workflow-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 14px;
+      }
+
+      .pain-item,
+      .workflow-item,
+      .try-panel {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--surface);
+      }
+
+      .pain-item,
+      .workflow-item {
+        padding: 22px;
+      }
+
+      .pain-item::before,
+      .workflow-item::before {
+        display: block;
+        width: 34px;
+        height: 5px;
+        margin-bottom: 18px;
+        border-radius: 999px;
+        background: var(--coral);
+        content: '';
+      }
+
+      .workflow-item:nth-child(2)::before {
+        background: var(--teal);
+      }
+
+      .workflow-item:nth-child(3)::before {
+        background: var(--blue);
+      }
+
+      .workflow-item:nth-child(4)::before {
+        background: var(--amber);
+      }
+
+      .pain-item h3,
+      .workflow-item h3 {
+        margin-bottom: 10px;
+        font-size: 20px;
+      }
+
+      .pain-item p,
+      .workflow-item p {
+        margin-bottom: 0;
+        color: var(--muted);
+        line-height: 1.55;
+      }
+
+      .workflow {
+        background: #f4f8f6;
+        border-block: 1px solid var(--line);
+      }
+
+      .try-demo {
+        display: grid;
+        grid-template-columns: minmax(0, 0.9fr) minmax(320px, 1.1fr);
+        gap: 24px;
+        align-items: stretch;
+      }
+
+      .try-panel {
+        padding: 26px;
+      }
+
+      .try-panel.accent {
+        background: var(--ink);
+        color: white;
+      }
+
+      .try-panel.accent p {
+        color: rgba(255, 255, 255, 0.74);
+      }
+
+      .question-list {
+        display: grid;
+        gap: 10px;
+        margin-top: 20px;
+      }
+
+      .question-button {
+        width: 100%;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 8px;
+        background: rgba(255, 255, 255, 0.08);
+        color: white;
+        cursor: pointer;
+        padding: 14px 15px;
+        text-align: left;
+        font: inherit;
+        font-weight: 750;
+      }
+
+      .question-button:hover,
+      .question-button:focus-visible {
+        background: rgba(255, 255, 255, 0.14);
+        outline: 2px solid rgba(255, 255, 255, 0.5);
+        outline-offset: 2px;
+      }
+
+      .copy-status {
+        min-height: 20px;
+        margin-top: 14px;
+        color: var(--mint);
+        font-size: 14px;
+        font-weight: 800;
+      }
+
+      .demo-flow {
+        display: grid;
+        gap: 14px;
+      }
+
+      .flow-step {
+        display: grid;
+        grid-template-columns: 42px minmax(0, 1fr);
+        gap: 14px;
+        align-items: start;
+        border-bottom: 1px solid var(--line);
+        padding-bottom: 14px;
+      }
+
+      .flow-step:last-child {
+        border-bottom: 0;
+        padding-bottom: 0;
+      }
+
+      .step-number {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        place-items: center;
+        border-radius: 8px;
+        background: var(--mint);
+        color: var(--teal-dark);
+        font-weight: 900;
+      }
+
+      .flow-step strong {
+        display: block;
+        margin-bottom: 4px;
+      }
+
+      .flow-step span {
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      .open-source {
+        border-top: 1px solid var(--line);
+      }
+
+      .closing-band {
+        display: grid;
+        min-height: 320px;
+        align-items: center;
+        background: var(--teal-dark);
+        color: white;
+      }
+
+      .closing-band .section-head p {
+        color: rgba(255, 255, 255, 0.76);
+      }
+
+      .footer {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 26px clamp(18px, 5vw, 64px);
+        color: var(--muted);
+        border-top: 1px solid var(--line);
+        font-size: 14px;
+      }
+
+      @media (max-width: 1100px) {
+        .hero-scene {
+          inset-left: 28%;
+          opacity: 0.34;
+        }
+
+        .source-pane {
+          display: none;
+        }
+
+        .pain-grid,
+        .workflow-grid {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+
+      @media (max-width: 760px) {
+        .site-header {
+          position: sticky;
+          padding: 12px 16px;
+        }
+
+        .nav-actions a:not(.primary-link) {
+          display: none;
+        }
+
+        .hero {
+          min-height: auto;
+          padding: 56px 18px 42px;
+        }
+
+        .hero-scene {
+          position: relative;
+          inset: auto;
+          grid-template-columns: 1fr;
+          margin: 28px 0 0;
+          opacity: 1;
+        }
+
+        .queue {
+          display: none;
+        }
+
+        .conversation {
+          min-height: 340px;
+        }
+
+        .hero-copy {
+          padding-top: 0;
+        }
+
+        h1 {
+          font-size: clamp(48px, 18vw, 72px);
+        }
+
+        .hero-metrics,
+        .pain-grid,
+        .workflow-grid,
+        .try-demo {
+          grid-template-columns: 1fr;
+        }
+
+        main section {
+          padding: 54px 18px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="site-header" aria-label="Site header">
+      <div class="brand" aria-label="EchoSupport">
+        <span class="brand-mark">E</span>
+        <span>EchoSupport</span>
+      </div>
+      <nav class="nav-actions" aria-label="Primary navigation">
+        <a href="#workflow">Workflow</a>
+        <a href="#try">Try questions</a>
+        <a class="primary-link" href="/admin">Admin demo</a>
+      </nav>
+    </header>
+
+    <section class="hero">
+      <div class="hero-scene" aria-hidden="true">
+        <div class="queue">
+          <div class="scene-label">Support queue</div>
+          <div class="ticket">
+            <strong>Where is the refund policy?</strong>
+            <span>Answered from knowledge base before the team opens the ticket.</span>
+            <div class="status-line"><span>AI resolved</span><span class="dot"></span></div>
+          </div>
+          <div class="ticket">
+            <strong>Can I book onboarding?</strong>
+            <span>Captured intent, prepared booking context, ready for an operator.</span>
+            <div class="status-line">
+              <span>Needs follow-up</span><span class="dot amber"></span>
+            </div>
+          </div>
+          <div class="ticket">
+            <strong>Billing question</strong>
+            <span>Escalated with conversation summary and visitor context.</span>
+            <div class="status-line"><span>Inbox handoff</span><span class="dot coral"></span></div>
+          </div>
+        </div>
+        <div class="conversation">
+          <div class="scene-label">Live website chat</div>
+          <div class="message visitor">
+            <small>Visitor</small>
+            Can EchoSupport answer from our docs and still hand off to a human?
+          </div>
+          <div class="message agent">
+            <small>EchoSupport</small>
+            Yes. It can use your knowledge sources for instant replies, then move the conversation
+            into the operator inbox when confidence, intent, or policy requires a person.
+          </div>
+          <div class="message visitor">
+            <small>Visitor</small>
+            What happens after the chat?
+          </div>
+          <div class="message agent">
+            <small>EchoSupport</small>
+            The team keeps the transcript, handoff context, CSAT signal, and booking intent in one
+            workspace.
+          </div>
+        </div>
+      </div>
+      <div class="source-pane" aria-hidden="true">
+        <div class="scene-label">Connected source</div>
+        <div class="source-row">
+          <strong>help-center/refunds.md</strong>
+          <span>Indexed and ready for support answers.</span>
+        </div>
+      </div>
+
+      <div class="hero-copy">
+        <div class="eyebrow">Open-source support automation</div>
+        <h1>EchoSupport</h1>
+        <p>
+          Turn your website into an AI-assisted support desk that answers repeat questions,
+          preserves context for operators, and gives visitors a faster path to help.
+        </p>
+        <div class="hero-actions">
+          <a class="button primary" href="#try">Try the live widget</a>
+          <a class="button secondary" href="/admin">Open admin demo</a>
+        </div>
+        <div class="hero-metrics" aria-label="Product highlights">
+          <div class="metric">
+            <strong>AI first reply</strong>
+            <span>Reduce repetitive tickets without hiding the human team.</span>
+          </div>
+          <div class="metric">
+            <strong>Inbox handoff</strong>
+            <span>Bring transcript, intent, and visitor context into one queue.</span>
+          </div>
+          <div class="metric">
+            <strong>Own the stack</strong>
+            <span>Docker Compose, PostgreSQL, Qdrant, and open-source code.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <main>
+      <section aria-labelledby="pain-title">
+        <div class="section-head">
+          <h2 id="pain-title">
+            Support gets expensive when every simple question becomes a ticket.
+          </h2>
+          <p>
+            Most teams do not lose customers because they lack answers. They lose them because the
+            answers live in too many places and the visitor waits while the team reconstructs
+            context.
+          </p>
+        </div>
+        <div class="pain-grid">
+          <article class="pain-item">
+            <h3>Repeated questions</h3>
+            <p>
+              Refunds, pricing, onboarding, and setup questions consume operator time every day.
+            </p>
+          </article>
+          <article class="pain-item">
+            <h3>Scattered knowledge</h3>
+            <p>
+              Docs, policies, and help pages exist, but visitors still cannot find the right answer.
+            </p>
+          </article>
+          <article class="pain-item">
+            <h3>Lost context</h3>
+            <p>When a human joins, they often start by asking the visitor to repeat the story.</p>
+          </article>
+          <article class="pain-item">
+            <h3>No feedback loop</h3>
+            <p>Teams answer chats but struggle to see satisfaction, gaps, and follow-up demand.</p>
+          </article>
+        </div>
+      </section>
+
+      <section class="workflow" id="workflow" aria-labelledby="workflow-title">
+        <div class="section-head">
+          <h2 id="workflow-title">EchoSupport connects the first answer to the human workflow.</h2>
+          <p>
+            The widget is only the doorway. Behind it is a support workspace for knowledge, operator
+            handoff, CSAT, and booking-ready conversations.
+          </p>
+        </div>
+        <div class="workflow-grid">
+          <article class="workflow-item">
+            <h3>Website widget</h3>
+            <p>Embed the chat on any site with a public agent key and a small script.</p>
+          </article>
+          <article class="workflow-item">
+            <h3>Knowledge answers</h3>
+            <p>Index documents and URLs so the assistant can answer from your material.</p>
+          </article>
+          <article class="workflow-item">
+            <h3>Operator inbox</h3>
+            <p>Escalate conversations with the transcript and visitor context intact.</p>
+          </article>
+          <article class="workflow-item">
+            <h3>CSAT and booking</h3>
+            <p>Close the loop with ratings, service flows, specialists, and appointments.</p>
+          </article>
+        </div>
+      </section>
+
+      <section id="try" aria-labelledby="try-title">
+        <div class="try-demo">
+          <div class="try-panel accent">
+            <div class="section-head">
+              <h2 id="try-title">Try the live agent.</h2>
+              <p>
+                Open the chat bubble in the corner and ask one of these questions. The demo uses the
+                same EchoSupport widget that a real website would embed.
+              </p>
+            </div>
+            <div class="question-list" aria-label="Suggested demo questions">
+              <button class="question-button" type="button">
+                What can EchoSupport do for my support team?
+              </button>
+              <button class="question-button" type="button">
+                Can EchoSupport use my knowledge base?
+              </button>
+              <button class="question-button" type="button">How does operator handoff work?</button>
+              <button class="question-button" type="button">Is EchoSupport open source?</button>
+            </div>
+            <div class="copy-status" role="status" aria-live="polite"></div>
+          </div>
+
+          <div class="try-panel">
+            <div class="demo-flow">
+              <div class="flow-step">
+                <span class="step-number">1</span>
+                <div>
+                  <strong>Ask a real support question</strong>
+                  <span>Use the widget just like a visitor on your product website.</span>
+                </div>
+              </div>
+              <div class="flow-step">
+                <span class="step-number">2</span>
+                <div>
+                  <strong>Watch the assistant answer</strong>
+                  <span>Responses can use the global provider key and indexed knowledge.</span>
+                </div>
+              </div>
+              <div class="flow-step">
+                <span class="step-number">3</span>
+                <div>
+                  <strong>Review the conversation in Inbox</strong>
+                  <span>Operators keep the full transcript instead of starting from zero.</span>
+                </div>
+              </div>
+              <div class="flow-step">
+                <span class="step-number">4</span>
+                <div>
+                  <strong>Adapt it to your own stack</strong>
+                  <span>Self-host it with Docker Compose or extend the open-source codebase.</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="open-source" aria-labelledby="opensource-title">
+        <div class="section-head">
+          <h2 id="opensource-title">Built for teams that want control, not another black box.</h2>
+          <p>
+            EchoSupport is designed as a practical open-source support layer: Docker Compose for the
+            first deployment, PostgreSQL for durable data, Qdrant for retrieval, and an admin panel
+            your team can operate directly.
+          </p>
+        </div>
+      </section>
+
+      <section class="closing-band" aria-labelledby="closing-title">
+        <div class="section-head">
+          <h2 id="closing-title">
+            Give visitors an answer now and give operators the context later.
+          </h2>
+          <p>
+            Use this page as the customer-facing demo. Then open the admin panel to see what the
+            support team sees after a visitor starts a conversation.
+          </p>
+          <div class="hero-actions">
+            <a class="button primary" href="#try">Ask the widget</a>
+            <a class="button secondary" href="/admin">View admin</a>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <span>EchoSupport demo</span>
+      <span>Public widget key only. Provider keys stay server-side.</span>
+    </footer>
+
+    <script>
+      (function () {
+        var defaultAgentKey = 'pk_b28c34aa5dc41f52a95a75083862b6d1';
+        var params = new URLSearchParams(window.location.search);
+        var agentKey = params.get('agentKey') || defaultAgentKey;
+        var apiBase = window.location.origin;
+
+        var embed = document.createElement('script');
+        embed.src = apiBase + '/embed.js';
+        embed.defer = true;
+        embed.setAttribute('data-agent-key', agentKey);
+        embed.setAttribute('data-api-base', apiBase);
+        document.body.appendChild(embed);
+
+        var status = document.querySelector('.copy-status');
+        var buttons = document.querySelectorAll('.question-button');
+
+        buttons.forEach(function (button) {
+          button.addEventListener('click', function () {
+            var text = button.textContent.trim();
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+              navigator.clipboard.writeText(text).then(function () {
+                status.textContent = 'Question copied. Paste it into the chat widget.';
+              });
+              return;
+            }
+            status.textContent = text;
+          });
+        });
+      })();
+    </script>
+  </body>
+</html>
