@@ -105,7 +105,11 @@
 
       .hero {
         position: relative;
+        display: grid;
         min-height: 92vh;
+        grid-template-columns: minmax(0, 0.92fr) minmax(520px, 1.08fr);
+        gap: clamp(26px, 4vw, 58px);
+        align-items: center;
         overflow: hidden;
         padding: 112px clamp(18px, 5vw, 64px) 56px;
         border-bottom: 1px solid var(--line);
@@ -120,10 +124,12 @@
       }
 
       .hero-scene {
-        position: absolute;
-        inset: 86px clamp(16px, 4vw, 52px) 34px 38%;
+        position: relative;
+        z-index: 1;
+        order: 2;
         display: grid;
-        grid-template-columns: minmax(220px, 0.8fr) minmax(260px, 1fr);
+        min-width: 0;
+        grid-template-columns: minmax(190px, 0.75fr) minmax(300px, 1fr);
         gap: 18px;
         align-items: stretch;
         opacity: 0.96;
@@ -240,12 +246,7 @@
       }
 
       .source-pane {
-        position: absolute;
-        right: 8%;
-        bottom: 52px;
-        width: min(360px, 32vw);
-        padding: 14px;
-        border-radius: 8px;
+        display: none;
       }
 
       .source-row {
@@ -255,8 +256,9 @@
       .hero-copy {
         position: relative;
         z-index: 2;
-        max-width: 650px;
-        padding-top: 7vh;
+        order: 1;
+        min-width: 0;
+        max-width: 640px;
       }
 
       .eyebrow {
@@ -288,9 +290,10 @@
       h1 {
         max-width: 620px;
         margin-bottom: 22px;
-        font-size: clamp(54px, 8vw, 104px);
-        line-height: 0.92;
+        font-size: clamp(52px, 6.6vw, 88px);
+        line-height: 0.95;
         letter-spacing: 0;
+        overflow-wrap: anywhere;
       }
 
       .hero-copy p {
@@ -558,12 +561,15 @@
       }
 
       @media (max-width: 1100px) {
-        .hero-scene {
-          inset-left: 28%;
-          opacity: 0.34;
+        .hero {
+          grid-template-columns: minmax(0, 1fr);
         }
 
-        .source-pane {
+        .hero-scene {
+          opacity: 1;
+        }
+
+        .queue {
           display: none;
         }
 
@@ -589,15 +595,8 @@
         }
 
         .hero-scene {
-          position: relative;
-          inset: auto;
           grid-template-columns: 1fr;
           margin: 28px 0 0;
-          opacity: 1;
-        }
-
-        .queue {
-          display: none;
         }
 
         .conversation {
@@ -609,7 +608,13 @@
         }
 
         h1 {
-          font-size: clamp(48px, 18vw, 72px);
+          max-width: 100%;
+          font-size: clamp(40px, 11.5vw, 58px);
+          line-height: 1;
+        }
+
+        .hero-copy p {
+          font-size: clamp(19px, 6vw, 24px);
         }
 
         .hero-metrics,

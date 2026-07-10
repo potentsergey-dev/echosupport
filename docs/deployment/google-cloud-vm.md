@@ -223,4 +223,10 @@ docker compose down --volumes
 - Widget says origin is not allowed: add the widget page origin to the agent profile or
   restart once with `ECHOSUPPORT_DEMO_MARKETING_SEED=true` and correct `PUBLIC_BASE_URL`.
 - AI answers fail: add `OPENROUTER_API_KEY` or an agent-specific OpenRouter key and confirm
-  the OpenRouter account has credit.
+  the OpenRouter account has credit. If the widget says the configured LLM model is unavailable,
+  open the agent Profile and use a current OpenRouter model such as `openai/gpt-4o-mini`, then
+  inspect the exact provider error:
+
+  ```bash
+  docker compose logs --tail=160 backend
+  ```
