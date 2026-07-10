@@ -23,6 +23,24 @@ export interface StreamResult {
   toolCalls?: ToolCall[];
 }
 
+function getErrorMessage(err: unknown): string {
+  if (err instanceof Error && err.message.trim()) return err.message.trim();
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    'message' in err &&
+    typeof err.message === 'string' &&
+    err.message.trim()
+  ) {
+    return err.message.trim();
+  }
+  return '';
+}
+
+function isStreamOptionsCompatibilityError(err: unknown): boolean {
+  return /not found|unsupported|stream_options|include_usage/i.test(getErrorMessage(err));
+}
+
 function createClient(apiKey: string): OpenAI {
   return new OpenAI({
     apiKey,
@@ -48,13 +66,23 @@ export async function chatStream(
 ): Promise<StreamResult> {
   const client = createClient(apiKey);
 
-  const stream = await client.chat.completions.create({
+  const request: OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming = {
     model,
     messages: messages as OpenAI.Chat.Completions.ChatCompletionMessageParam[],
     stream: true,
     stream_options: { include_usage: true },
     ...(tools && tools.length > 0 ? { tools, tool_choice: 'auto' } : {}),
-  });
+  };
+
+  let stream;
+  try {
+    stream = await client.chat.completions.create(request);
+  } catch (err) {
+    if (!isStreamOptionsCompatibilityError(err)) throw err;
+    const fallbackRequest = { ...request };
+    delete fallbackRequest.stream_options;
+    stream = await client.chat.completions.create(fallbackRequest);
+  }
 
   let tokensIn = 0;
   let tokensOut = 0;

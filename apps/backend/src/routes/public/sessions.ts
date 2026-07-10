@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { prisma } from '../../db/prisma.js';
 import { retrieve } from '../../services/retriever.js';
 import { buildMessages } from '../../services/prompt-builder.js';
-import { chatStream, type ChatMessage } from '../../adapters/llm/openrouter.js';
+import { chatCompletion, chatStream, type ChatMessage } from '../../adapters/llm/openrouter.js';
 import { getAgentSecrets } from '../../services/agent-secrets.js';
 import { summarizeIfNeeded } from '../../services/conversation-summarizer.js';
 import { transcribe as transcribeDeepgram } from '../../adapters/stt/deepgram.js';
@@ -407,7 +407,18 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
               { err: summarizeError(err), agentId: agent.id, model: agent.llmModel },
               'Retrying assistant response without tools after LLM tool request failed',
             );
-            result = await chatStream(llmMessages, agent.llmModel, openrouterKey, streamTokens);
+            try {
+              result = await chatStream(llmMessages, agent.llmModel, openrouterKey, streamTokens);
+            } catch (fallbackErr) {
+              if (!isToolCompatibilityError(fallbackErr)) throw fallbackErr;
+              req.log.warn(
+                { err: summarizeError(fallbackErr), agentId: agent.id, model: agent.llmModel },
+                'Retrying assistant response without streaming after LLM stream request failed',
+              );
+              const text = await chatCompletion(llmMessages, agent.llmModel, openrouterKey);
+              streamTokens(text);
+              result = { usage: { tokensIn: 0, tokensOut: 0 } };
+            }
           }
 
           usage = result.usage;
