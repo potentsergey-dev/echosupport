@@ -61,6 +61,11 @@ function getErrorMessage(err: unknown): string {
   return '';
 }
 
+function isToolCompatibilityError(err: unknown): boolean {
+  const message = getErrorMessage(err);
+  return /model|not found|unsupported|tool|function/i.test(message);
+}
+
 function formatPublicChatError(err: unknown): string {
   const message = getErrorMessage(err);
 
@@ -377,19 +382,33 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
           const isFirstRound = round === 0;
           const roundTokens: string[] = [];
 
-          const result = await chatStream(
-            llmMessages,
-            agent.llmModel,
-            openrouterKey,
-            (token) => {
-              if (isFirstRound || round > 0) {
-                tokens.push(token);
-                roundTokens.push(token);
-              }
-              sseWrite(raw, 'delta', { text: token });
-            },
-            AGENT_TOOLS,
-          );
+          const streamTokens = (token: string) => {
+            if (isFirstRound || round > 0) {
+              tokens.push(token);
+              roundTokens.push(token);
+            }
+            sseWrite(raw, 'delta', { text: token });
+          };
+
+          let result;
+          try {
+            result = await chatStream(
+              llmMessages,
+              agent.llmModel,
+              openrouterKey,
+              streamTokens,
+              AGENT_TOOLS,
+            );
+          } catch (err) {
+            if (!isFirstRound || tokens.length > 0 || !isToolCompatibilityError(err)) {
+              throw err;
+            }
+            req.log.warn(
+              { err: summarizeError(err), agentId: agent.id, model: agent.llmModel },
+              'Retrying assistant response without tools after LLM tool request failed',
+            );
+            result = await chatStream(llmMessages, agent.llmModel, openrouterKey, streamTokens);
+          }
 
           usage = result.usage;
 
