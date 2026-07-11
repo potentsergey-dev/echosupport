@@ -130,6 +130,12 @@ function formatPublicTranscriptionError(): string {
   return 'Transcription failed. Please try again later.';
 }
 
+function isDemoHandoffRequest(text: string): boolean {
+  return /\b(operator|human|person|specialist|agent)\b|оператор|человек|специалист|жив[оы]м?/i.test(
+    text,
+  );
+}
+
 // ── Zod schemas ──────────────────────────────────────────────────────────────
 
 const CreateSessionSchema = z.object({
@@ -413,9 +419,18 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
         const llmMessages = [...messages] as ChatMessage[];
 
         if (env.ECHOSUPPORT_DEMO_MARKETING_SEED === 'true') {
-          const text = await chatCompletion(llmMessages, agent.llmModel, openrouterKey);
-          tokens.push(text);
-          sseWrite(raw, 'delta', { text });
+          if (isDemoHandoffRequest(text)) {
+            const toolResult = await executeTool(
+              'request_handoff',
+              { reason: 'Visitor explicitly requested a human operator in the demo widget.' },
+              { sessionId, agentId: agent.id, tenantId: agent.tenantId },
+            );
+            handoffSideEffect = toolResult.sideEffect === 'handoff_requested';
+          }
+
+          const completionText = await chatCompletion(llmMessages, agent.llmModel, openrouterKey);
+          tokens.push(completionText);
+          sseWrite(raw, 'delta', { text: completionText });
         } else {
           for (let round = 0; round < 3; round++) {
             const isFirstRound = round === 0;
@@ -454,8 +469,12 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
                   { err: summarizeError(fallbackErr), agentId: agent.id, model: agent.llmModel },
                   'Retrying assistant response without streaming after LLM stream request failed',
                 );
-                const text = await chatCompletion(llmMessages, agent.llmModel, openrouterKey);
-                streamTokens(text);
+                const completionText = await chatCompletion(
+                  llmMessages,
+                  agent.llmModel,
+                  openrouterKey,
+                );
+                streamTokens(completionText);
                 result = { usage: { tokensIn: 0, tokensOut: 0 } };
               }
             }
