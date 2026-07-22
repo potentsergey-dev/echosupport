@@ -138,6 +138,14 @@ async function seedFixture(): Promise<Fixture> {
       data: { agentId: agentB.id, visitorId: 'visitor-b', expiresAt },
     }),
   ]);
+  await prisma.message.create({
+    data: {
+      sessionId: sessionA.id,
+      role: 'USER',
+      authorType: 'VISITOR',
+      content: 'Hello from visitor A',
+    },
+  });
 
   return {
     tenantA: tenantA.id,
@@ -365,6 +373,46 @@ describe('authentication and tenant isolation (PostgreSQL)', () => {
     await app.close();
   });
 
+  it('hides empty widget sessions from operator inbox and take-over', async () => {
+    const app = await buildTestServer();
+    const headers = authorization(token(app, fixture, 'OPERATOR'));
+    const [emptySession, emptyTakenSession] = await Promise.all([
+      prisma.session.create({
+        data: {
+          agentId: fixture.agentA,
+          visitorId: 'empty-widget-open',
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      }),
+      prisma.session.create({
+        data: {
+          agentId: fixture.agentA,
+          visitorId: 'empty-widget-taken',
+          status: 'WITH_OPERATOR',
+          assignedOperatorId: fixture.operatorA,
+          expiresAt: new Date(Date.now() + 60_000),
+        },
+      }),
+    ]);
+
+    const inbox = await app.inject({
+      method: 'GET',
+      url: '/api/v1/operator/inbox?status=ALL_OPEN',
+      headers,
+    });
+    expect(inbox.statusCode).toBe(200);
+    expect(inbox.body).not.toContain(emptySession.id);
+    expect(inbox.body).not.toContain(emptyTakenSession.id);
+
+    const take = await app.inject({
+      method: 'POST',
+      url: `/api/v1/operator/sessions/${emptySession.id}/take`,
+      headers,
+    });
+    expect(take.statusCode).toBe(409);
+    expect(take.json()).toEqual({ error: 'Cannot take an empty session' });
+    await app.close();
+  });
   it('isolates operator inbox, session reads and session mutations', async () => {
     const app = await buildTestServer();
     const headers = authorization(token(app, fixture, 'OPERATOR'));

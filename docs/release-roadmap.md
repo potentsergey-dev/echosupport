@@ -51,6 +51,8 @@ Exit criteria:
 ## Stage 3 — User experience and documentation
 
 - Add an in-product first-run checklist with actionable status.
+- Provide safe agent lifecycle controls, including guarded deletion for unused agents.
+- Keep operators aware of open AI/operator conversations without requiring constant inbox polling.
 - Publish installation, administrator, operator, embedding, provider, troubleshooting,
   FAQ and cost/privacy guides.
 - Use consistent terminology and supported Russian and English locales.

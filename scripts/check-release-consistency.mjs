@@ -67,6 +67,7 @@ const composeOnlyKeys = new Set([
   'ADMIN_EMAIL',
   'ADMIN_PASSWORD',
   'HTTP_PORT',
+  'APP_EDITION',
 ]);
 
 for (const key of schemaKeys) {

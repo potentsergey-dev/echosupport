@@ -11,6 +11,8 @@ COPY packages/shared/package.json packages/shared/package.json
 RUN pnpm install --frozen-lockfile
 
 COPY . .
+ARG VITE_APP_EDITION=pro
+ENV VITE_APP_EDITION=${VITE_APP_EDITION}
 RUN pnpm --filter @echosupport/backend db:generate
 RUN pnpm build:prod
 

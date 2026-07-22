@@ -3,7 +3,7 @@
 1. Sign in to `/admin`.
 2. Open the seeded `Demo Agent` from the sidebar or create a new agent with a clear name and
    system prompt.
-3. On the Profile tab, select the model, language, session lifetime, and allowed website
+3. On the Profile tab, select the model, interface language, session lifetime, and allowed website
    origins.
 4. On the API keys tab, save provider keys when you are ready to test real behavior:
    OpenRouter for chat answers, OpenAI/OpenRouter embeddings for knowledge indexing, and
@@ -21,6 +21,29 @@
 
 The production website origin must exactly match an Allowed Origin, including scheme and
 port. Use `https://example.com`, not a path.
+
+## Widget Interface Language
+
+The widget system interface supports Russian and English. Set Interface language on the
+Profile tab to `Русский` or `English` to force system UI labels, placeholders, statuses,
+and error messages, or leave it as `Auto` to use the visitor browser language when it is
+Russian or English. Greeting text, agent role, proactive message, quick replies, and AI
+answers are configured separately.
+
+## Social and ad links
+
+Platforms such as YouTube, TikTok, Instagram, directories, and ad profiles cannot run the
+embed script directly. Link users to a page on your site that already contains the
+EchoSupport widget, then add `chat=open` to the URL:
+
+```text
+https://example.com/?chat=open&source=tiktok
+https://example.com/services?chat=open&source=youtube&scenario=booking
+```
+
+When `chat=open` is present, the widget opens automatically. On phones and tablets it opens
+as a full-screen chat; on desktop it opens as the regular site widget. Use optional
+`source` and `scenario` parameters for your own analytics or campaign naming.
 
 Before publishing the widget, test a real question, operator handoff into Inbox, booking,
 and CSAT. Chat answers require a chat provider key; knowledge-grounded answers also require

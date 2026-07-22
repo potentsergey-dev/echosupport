@@ -23,6 +23,8 @@ interface ServiceFormData {
   priceLabel: string;
   description: string;
   specialistId: string;
+  isGroup: boolean;
+  capacity: number;
   isActive: boolean;
 }
 
@@ -40,6 +42,8 @@ function ServiceForm({ initial, specialists, onSubmit, onCancel, loading }: Serv
   const [priceLabel, setPriceLabel] = useState(initial?.priceLabel ?? '');
   const [description, setDescription] = useState(initial?.description ?? '');
   const [specialistId, setSpecialistId] = useState(initial?.specialistId ?? '');
+  const [isGroup, setIsGroup] = useState(initial?.isGroup ?? false);
+  const [capacity, setCapacity] = useState(initial?.capacity ?? 2);
   const [isActive, setIsActive] = useState(initial?.isActive ?? true);
 
   return (
@@ -107,6 +111,34 @@ function ServiceForm({ initial, specialists, onSubmit, onCancel, loading }: Serv
           className="mt-1"
         />
       </div>
+      <div className="rounded-lg border border-gray-200 bg-white p-3">
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="svc-group"
+            checked={isGroup}
+            onChange={(e) => setIsGroup(e.target.checked)}
+            className="h-4 w-4 rounded border-gray-300 text-indigo-600"
+          />
+          <label htmlFor="svc-group" className="text-sm font-medium text-gray-700">
+            Групповое занятие
+          </label>
+        </div>
+        {isGroup && (
+          <div className="mt-3 max-w-xs">
+            <Label htmlFor="svc-capacity">Количество мест</Label>
+            <Input
+              id="svc-capacity"
+              type="number"
+              min={1}
+              max={500}
+              value={capacity}
+              onChange={(e) => setCapacity(parseInt(e.target.value) || 1)}
+              className="mt-1"
+            />
+          </div>
+        )}
+      </div>
       <div className="flex items-center gap-2">
         <input
           type="checkbox"
@@ -124,7 +156,16 @@ function ServiceForm({ initial, specialists, onSubmit, onCancel, loading }: Serv
           loading={loading ?? false}
           disabled={!name.trim()}
           onClick={() =>
-            onSubmit({ name, durationMin, priceLabel, description, specialistId, isActive })
+            onSubmit({
+              name,
+              durationMin,
+              priceLabel,
+              description,
+              specialistId,
+              isGroup,
+              capacity: isGroup ? capacity : 1,
+              isActive,
+            })
           }
         >
           {initial?.id ? 'Сохранить' : 'Создать'}
@@ -162,6 +203,7 @@ function ServiceCard({
         <div className="mt-1 flex flex-wrap gap-3 text-sm text-gray-500">
           <span>{service.durationMin} мин</span>
           {service.priceLabel && <span>{service.priceLabel}</span>}
+          {service.isGroup && <span>· группа до {service.capacity} чел.</span>}
           {service.specialist && <span>· {service.specialist.name}</span>}
           {!service.specialist && <span className="text-gray-400">· любой специалист</span>}
         </div>
@@ -218,6 +260,8 @@ export function ServicesPage() {
     priceLabel: string;
     description: string;
     specialistId: string;
+    isGroup: boolean;
+    capacity: number;
     isActive: boolean;
   };
 
@@ -229,6 +273,8 @@ export function ServicesPage() {
         priceLabel: data.priceLabel.trim() || null,
         description: data.description.trim() || null,
         specialistId: data.specialistId || null,
+        isGroup: data.isGroup,
+        capacity: data.isGroup ? data.capacity : 1,
         isActive: data.isActive,
       }),
     onSuccess: () => {
@@ -249,6 +295,8 @@ export function ServicesPage() {
         priceLabel: data.priceLabel.trim() || null,
         description: data.description.trim() || null,
         specialistId: data.specialistId || null,
+        isGroup: data.isGroup,
+        capacity: data.isGroup ? data.capacity : 1,
         isActive: data.isActive,
       }),
     onSuccess: () => {

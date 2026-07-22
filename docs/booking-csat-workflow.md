@@ -15,8 +15,9 @@ Appointments can only be created inside the selected specialist working hours.
 2. Add a service name and duration.
 3. Optionally add a price label and description.
 4. Choose a specialist only when the service is exclusive to that specialist. Leave it as any specialist when all active specialists can provide it.
+5. For classes, trainings, webinars, or other shared time slots, enable `Групповое занятие` and set `Количество мест`.
 
-Service duration controls appointment length and conflict checks.
+Service duration controls appointment length and conflict checks. Ordinary services allow one active booking for a specialist at the selected time. Group services allow multiple active bookings only for the same specialist, the same service, and the same start/end time until the configured capacity is reached.
 
 ## Appointment Requests
 
@@ -39,7 +40,7 @@ Rescheduled appointments return to `PENDING` so the new time can be reviewed.
 
 ## CSAT Collection
 
-Visitors can submit CSAT after a support session is resolved or closed. The public API accepts one rating per session and requires the matching agent public key.
+Visitors can submit CSAT after a support session is resolved by an operator or after they click `End chat` / `Завершить чат` in the widget. After submitting CSAT, the widget offers `Start new chat` / `Начать новый чат` so the visitor can continue in a fresh session. The public API accepts one rating per session and requires the matching agent public key.
 
 Admins can open Admin -> CSAT to see:
 
@@ -52,6 +53,8 @@ Admins can open Admin -> CSAT to see:
 
 - No appointment slots appear: check that the specialist is active and has working hours for the requested day.
 - Appointment creation fails outside working hours: adjust the specialist working hours or choose a valid slot.
+- A group appointment is rejected as full: increase the service capacity or choose another time.
+- A group appointment is rejected as busy: make sure the existing bookings are for the same specialist, service, start time, and duration. Different overlapping services still block the specialist.
 - A service is not available for a specialist: verify the service is active and either assigned to that specialist or set to any specialist.
-- CSAT is unavailable: resolve or close the session first.
+- CSAT is unavailable: resolve the operator session or click `End chat` / `Завершить чат` in the widget first.
 - CSAT results look empty: ratings only appear after visitors submit the post-resolution form.

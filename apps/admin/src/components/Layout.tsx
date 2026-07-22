@@ -1,10 +1,11 @@
 import { Sidebar } from './Sidebar';
 import { ToastContainer } from './ui/ToastContainer';
+import { AdminNotifications } from './AdminNotifications';
 import { useToast } from '../hooks/useToast';
 import { createContext, useContext } from 'react';
 
 interface ToastContextValue {
-  addToast: (message: string, type?: 'success' | 'error') => void;
+  addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }
 
 export const ToastContext = createContext<ToastContextValue>({ addToast: () => undefined });
@@ -25,6 +26,7 @@ export function Layout({
   return (
     <ToastContext.Provider value={{ addToast }}>
       <div className="flex h-screen overflow-hidden bg-gray-50">
+        <AdminNotifications addToast={addToast} />
         <Sidebar activeAgentId={activeAgentId} />
         <main className="flex-1 overflow-y-auto">{children}</main>
         <ToastContainer toasts={toasts} onRemove={removeToast} />

@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { prisma } from '../../db/prisma.js';
 import { retrieve } from '../../services/retriever.js';
 import { buildMessages } from '../../services/prompt-builder.js';
-import { chatStream, type ChatMessage } from '../../adapters/llm/openrouter.js';
+import { chatCompletion, chatStream, type ChatMessage } from '../../adapters/llm/openrouter.js';
 import { getAgentSecrets } from '../../services/agent-secrets.js';
 import { summarizeIfNeeded } from '../../services/conversation-summarizer.js';
 import { transcribe as transcribeDeepgram } from '../../adapters/stt/deepgram.js';
@@ -17,6 +17,7 @@ import { isBusinessHoursNow, getOutOfHoursMessage } from '../../services/busines
 import { csatSubmissionSchema } from '../../services/csat.js';
 import { summarizeError } from '../../services/error-sanitizer.js';
 import { isOriginAllowed } from '../../services/origin-policy.js';
+import { isExplicitHandoffRequest } from '../../services/handoff-intent.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -48,17 +49,56 @@ function getErrorMessage(err: unknown): string {
     return err.message.trim();
   }
 
-  if (
-    typeof err === 'object' &&
-    err !== null &&
-    'message' in err &&
-    typeof err.message === 'string' &&
-    err.message.trim()
-  ) {
+  if (typeof err !== 'object' || err === null) return '';
+
+  if ('message' in err && typeof err.message === 'string' && err.message.trim()) {
     return err.message.trim();
   }
 
+  const nested = 'error' in err ? err.error : undefined;
+  if (
+    typeof nested === 'object' &&
+    nested !== null &&
+    'message' in nested &&
+    typeof nested.message === 'string' &&
+    nested.message.trim()
+  ) {
+    return nested.message.trim();
+  }
+
+  if ('status' in err && typeof err.status === 'number') {
+    return `HTTP ${err.status}`;
+  }
+
   return '';
+}
+
+function getErrorStatus(err: unknown): number | null {
+  if (
+    typeof err === 'object' &&
+    err !== null &&
+    'status' in err &&
+    typeof err.status === 'number'
+  ) {
+    return err.status;
+  }
+  return null;
+}
+
+function isToolCompatibilityError(err: unknown): boolean {
+  const message = getErrorMessage(err);
+  if (
+    /api key|unauthorized|authentication|auth|credit|quota|rate limit|insufficient/i.test(message)
+  ) {
+    return false;
+  }
+  const status = getErrorStatus(err);
+  return (
+    /model|not found|unsupported|tool|function|HTTP 400|HTTP 404|HTTP 422/i.test(message) ||
+    status === 400 ||
+    status === 404 ||
+    status === 422
+  );
 }
 
 function formatPublicChatError(err: unknown): string {
@@ -126,6 +166,7 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
           role: true,
           avatarUrl: true,
           greetingMessage: true,
+          language: true,
           proactiveMessageDelay: true,
           proactiveMessageText: true,
           systemPrompt: true,
@@ -199,6 +240,7 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
             `Hello! I'm ${agent.name}${agent.role ? `, ${agent.role}` : ''}. How can I help you?`,
           proactiveMessageDelay: agent.proactiveMessageDelay,
           proactiveMessageText: agent.proactiveMessageText,
+          language: agent.language,
         },
       });
     },
@@ -302,6 +344,24 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
       });
       raw.write('\n');
 
+      if (session.status === 'WAITING_OPERATOR' || session.status === 'WITH_OPERATOR') {
+        await prisma.session.update({
+          where: { id: sessionId },
+          data: { lastActiveAt: new Date() },
+        });
+        sseWrite(raw, 'done', {
+          messageId: null,
+          fullText: '',
+          tokensIn: null,
+          tokensOut: null,
+          retrievedSources: [],
+          handoffRequested: session.status === 'WAITING_OPERATOR',
+          routedToOperator: true,
+        });
+        raw.end();
+        return;
+      }
+
       try {
         sseWrite(raw, 'typing', { typing: true });
 
@@ -373,66 +433,109 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
         // Mutable messages for tool-call loop
         const llmMessages = [...messages] as ChatMessage[];
 
-        for (let round = 0; round < 3; round++) {
-          const isFirstRound = round === 0;
-          const roundTokens: string[] = [];
+        if (env.ECHOSUPPORT_DEMO_MARKETING_SEED === 'true') {
+          if (isExplicitHandoffRequest(text)) {
+            const toolResult = await executeTool(
+              'request_handoff',
+              { reason: 'Visitor explicitly requested a human operator in the demo widget.' },
+              { sessionId, agentId: agent.id, tenantId: agent.tenantId },
+            );
+            handoffSideEffect = toolResult.sideEffect === 'handoff_requested';
+          }
 
-          const result = await chatStream(
-            llmMessages,
-            agent.llmModel,
-            openrouterKey,
-            (token) => {
+          const completionText = await chatCompletion(llmMessages, agent.llmModel, openrouterKey);
+          tokens.push(completionText);
+          sseWrite(raw, 'delta', { text: completionText });
+        } else {
+          for (let round = 0; round < 3; round++) {
+            const isFirstRound = round === 0;
+            const roundTokens: string[] = [];
+
+            const streamTokens = (token: string) => {
               if (isFirstRound || round > 0) {
                 tokens.push(token);
                 roundTokens.push(token);
               }
               sseWrite(raw, 'delta', { text: token });
-            },
-            AGENT_TOOLS,
-          );
+            };
 
-          usage = result.usage;
-
-          if (!result.toolCalls || result.toolCalls.length === 0) {
-            // No tool calls — we're done
-            break;
-          }
-
-          // Process tool calls — server-side execution only
-          const assistantContent = roundTokens.join('');
-          if (assistantContent) {
-            llmMessages.push({ role: 'assistant', content: assistantContent });
-          } else {
-            // LLM returned only tool calls (no text before them)
-            llmMessages.push({
-              role: 'assistant',
-              content: '',
-            });
-          }
-
-          for (const tc of result.toolCalls) {
-            const toolResult = await executeTool(tc.name, tc.arguments, {
-              sessionId,
-              agentId: agent.id,
-              tenantId: session.agent.tenantId,
-            });
-
-            if (toolResult.sideEffect === 'handoff_requested') {
-              handoffSideEffect = true;
+            let result;
+            try {
+              result = await chatStream(
+                llmMessages,
+                agent.llmModel,
+                openrouterKey,
+                streamTokens,
+                AGENT_TOOLS,
+              );
+            } catch (err) {
+              if (!isFirstRound || tokens.length > 0 || !isToolCompatibilityError(err)) {
+                throw err;
+              }
+              req.log.warn(
+                { err: summarizeError(err), agentId: agent.id, model: agent.llmModel },
+                'Retrying assistant response without tools after LLM tool request failed',
+              );
+              try {
+                result = await chatStream(llmMessages, agent.llmModel, openrouterKey, streamTokens);
+              } catch (fallbackErr) {
+                if (!isToolCompatibilityError(fallbackErr)) throw fallbackErr;
+                req.log.warn(
+                  { err: summarizeError(fallbackErr), agentId: agent.id, model: agent.llmModel },
+                  'Retrying assistant response without streaming after LLM stream request failed',
+                );
+                const completionText = await chatCompletion(
+                  llmMessages,
+                  agent.llmModel,
+                  openrouterKey,
+                );
+                streamTokens(completionText);
+                result = { usage: { tokensIn: 0, tokensOut: 0 } };
+              }
             }
-            if (toolResult.quickReplies) {
-              sseWrite(raw, 'quick_replies', { replies: toolResult.quickReplies });
+
+            usage = result.usage;
+
+            if (!result.toolCalls || result.toolCalls.length === 0) {
+              // No tool calls — we're done
+              break;
             }
 
-            // Add tool result back to messages
-            llmMessages.push({
-              role: 'tool',
-              content: toolResult.result,
-              tool_call_id: tc.id,
-            });
+            // Process tool calls — server-side execution only
+            const assistantContent = roundTokens.join('');
+            if (assistantContent) {
+              llmMessages.push({ role: 'assistant', content: assistantContent });
+            } else {
+              // LLM returned only tool calls (no text before them)
+              llmMessages.push({
+                role: 'assistant',
+                content: '',
+              });
+            }
+
+            for (const tc of result.toolCalls) {
+              const toolResult = await executeTool(tc.name, tc.arguments, {
+                sessionId,
+                agentId: agent.id,
+                tenantId: session.agent.tenantId,
+              });
+
+              if (toolResult.sideEffect === 'handoff_requested') {
+                handoffSideEffect = true;
+              }
+              if (toolResult.quickReplies) {
+                sseWrite(raw, 'quick_replies', { replies: toolResult.quickReplies });
+              }
+
+              // Add tool result back to messages
+              llmMessages.push({
+                role: 'tool',
+                content: toolResult.result,
+                tool_call_id: tc.id,
+              });
+            }
           }
         }
-
         const fullText = tokens.join('');
         const latencyMs = Date.now() - startMs;
 
@@ -617,7 +720,7 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
 
       await prisma.session.update({
         where: { id: sessionId },
-        data: { closedAt: new Date() },
+        data: { status: 'CLOSED', closedAt: new Date() },
       });
 
       return reply.send({ ok: true });
@@ -625,7 +728,7 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   // ── POST /public/sessions/:sessionId/csat ─────────────────────────────────
-  // Called by widget after session is RESOLVED to submit CSAT rating
+  // Called by widget after session is RESOLVED or CLOSED to submit CSAT rating
   fastify.post<{ Params: { sessionId: string } }>(
     '/sessions/:sessionId/csat',
     async (req, reply) => {

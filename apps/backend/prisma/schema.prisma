@@ -399,6 +399,8 @@ model Service {
   description  String?  @db.Text
   durationMin  Int                          // длительность в минутах
   priceLabel   String?                      // "от 80 руб" — строкой
+  isGroup      Boolean  @default(false)
+  capacity     Int      @default(1)
   isActive     Boolean  @default(true)
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
@@ -461,3 +463,5 @@ enum AppointmentSource {
   AGENT
   OPERATOR
 }
+
+

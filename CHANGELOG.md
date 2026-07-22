@@ -4,6 +4,24 @@ All notable changes follow [Keep a Changelog](https://keepachangelog.com/) conve
 
 ## [Unreleased]
 
+## [1.0.4] - 2026-07-21
+
+### Added
+
+- Added Lite/PRO edition switching with a simplified Lite admin path for knowledge-base assistants.
+- Added widget launch links for social, ad, and profile traffic with mobile full-screen opening.
+- Added Russian/English widget interface text, `Powered by EchoSupport`, and clearer language-setting copy.
+- Added operator working mode, manual conversation takeover, return-to-agent flow, and browser handoff notifications.
+- Added appointment schedule views, specialist working-hours management improvements, and group service capacity for classes or shared sessions.
+- Added release, Lite/PRO VPS smoke-test, local-model, and demo-to-main transfer documentation.
+
+### Fixed
+
+- Prevented empty widget sessions from appearing as phantom inbox conversations.
+- Tightened automatic handoff detection so normal AI answers do not immediately switch to an operator.
+- Kept AI from responding after an operator has taken over a conversation.
+- Improved CSAT completion so visitors can rate an AI/Lite chat and then start a fresh chat.
+
 ## [1.0.3] - 2026-07-08
 
 ### Changed

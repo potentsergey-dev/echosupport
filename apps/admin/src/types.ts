@@ -101,6 +101,22 @@ export interface MaskedSecrets {
   deepgramKey: string | null;
 }
 
+export type ConfigCheckStatus = 'ok' | 'warning' | 'error';
+
+export interface ConfigCheckItem {
+  id: string;
+  label: string;
+  status: ConfigCheckStatus;
+  message: string;
+  action?: string;
+}
+
+export interface ConfigCheckReport {
+  status: ConfigCheckStatus;
+  checkedAt: string;
+  items: ConfigCheckItem[];
+}
+
 // ── Operator Inbox ────────────────────────────────────────────────────────────
 
 export interface InboxSession {
@@ -200,6 +216,8 @@ export interface Service {
   description: string | null;
   durationMin: number;
   priceLabel: string | null;
+  isGroup: boolean;
+  capacity: number;
   isActive: boolean;
   createdAt: string;
   updatedAt: string;
@@ -226,7 +244,13 @@ export interface Appointment {
   createdAt: string;
   updatedAt: string;
   specialist?: { id: string; name: string; role: string | null };
-  service?: { id: string; name: string; durationMin: number } | null;
+  service?: {
+    id: string;
+    name: string;
+    durationMin: number;
+    isGroup?: boolean;
+    capacity?: number;
+  } | null;
 }
 
 export interface AvailableSlot {

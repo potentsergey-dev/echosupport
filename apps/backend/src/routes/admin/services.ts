@@ -22,6 +22,8 @@ const CreateServiceSchema = z.object({
   durationMin: z.number().int().min(5).max(480),
   priceLabel: z.string().max(100).nullable().optional(),
   specialistId: z.string().nullable().optional(), // null = available for any specialist
+  isGroup: z.boolean().optional(),
+  capacity: z.number().int().min(1).max(500).optional(),
   isActive: z.boolean().optional(),
 });
 
@@ -64,6 +66,7 @@ const servicesRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(400).send({ error: 'Specialist not found or not in your tenant' });
     }
 
+    const isGroup = body.isGroup ?? false;
     const service = await prisma.service.create({
       data: {
         tenantId: req.user.tenantId,
@@ -72,6 +75,8 @@ const servicesRoutes: FastifyPluginAsync = async (fastify) => {
         durationMin: body.durationMin,
         priceLabel: body.priceLabel ?? null,
         specialistId: body.specialistId ?? null,
+        isGroup,
+        capacity: isGroup ? (body.capacity ?? 2) : 1,
         isActive: body.isActive ?? true,
       },
       include: {
@@ -102,7 +107,7 @@ const servicesRoutes: FastifyPluginAsync = async (fastify) => {
 
     const existing = await prisma.service.findFirst({
       where: { id, tenantId: req.user.tenantId },
-      select: { id: true },
+      select: { id: true, isGroup: true },
     });
     if (!existing) return reply.code(404).send({ error: 'Service not found' });
 
@@ -115,6 +120,7 @@ const servicesRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(400).send({ error: 'Specialist not found or not in your tenant' });
     }
 
+    const nextIsGroup = body.isGroup ?? existing.isGroup;
     const service = await prisma.service.update({
       where: { id },
       data: {
@@ -123,6 +129,9 @@ const servicesRoutes: FastifyPluginAsync = async (fastify) => {
         ...(body.durationMin !== undefined && { durationMin: body.durationMin }),
         ...(body.priceLabel !== undefined && { priceLabel: body.priceLabel }),
         ...(body.specialistId !== undefined && { specialistId: body.specialistId }),
+        ...(body.isGroup !== undefined && { isGroup: body.isGroup }),
+        ...(nextIsGroup === false && { capacity: 1 }),
+        ...(nextIsGroup !== false && body.capacity !== undefined && { capacity: body.capacity }),
         ...(body.isActive !== undefined && { isActive: body.isActive }),
       },
       include: { specialist: { select: { id: true, name: true } } },
@@ -137,7 +146,7 @@ const servicesRoutes: FastifyPluginAsync = async (fastify) => {
 
     const existing = await prisma.service.findFirst({
       where: { id, tenantId: req.user.tenantId },
-      select: { id: true },
+      select: { id: true, isGroup: true },
     });
     if (!existing) return reply.code(404).send({ error: 'Service not found' });
 

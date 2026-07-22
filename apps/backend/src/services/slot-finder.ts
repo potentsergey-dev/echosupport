@@ -43,11 +43,17 @@ export async function findAvailableSlots(
   });
   if (!specialist || !specialist.isActive) return [];
 
-  // Fetch service duration
+  // Fetch service duration and group capacity.
   let durationMin = DEFAULT_SLOT_DURATION_MIN;
+  let isGroup = false;
+  let capacity = 1;
   if (serviceId) {
     const service = await prisma.service.findUnique({ where: { id: serviceId } });
-    if (service) durationMin = service.durationMin;
+    if (service) {
+      durationMin = service.durationMin;
+      isGroup = service.isGroup;
+      capacity = service.capacity;
+    }
   }
 
   // Fetch existing (non-cancelled) appointments in range
@@ -58,11 +64,12 @@ export async function findAvailableSlots(
       startsAt: { lt: to },
       endsAt: { gt: from },
     },
-    select: { startsAt: true, endsAt: true },
+    select: { serviceId: true, startsAt: true, endsAt: true },
   });
 
   // Build blocked intervals
   const blocked = existingAppointments.map((a) => ({
+    serviceId: a.serviceId,
     from: a.startsAt.getTime(),
     to: a.endsAt.getTime(),
   }));
@@ -100,10 +107,21 @@ export async function findAvailableSlots(
       while (slotStart + slotMs <= periodEnd) {
         const slotEnd = slotStart + slotMs;
 
-        // Check if slot overlaps with any blocked interval
-        const overlaps = blocked.some((b) => slotStart < b.to && slotEnd > b.from);
+        const overlapping = blocked.filter((b) => slotStart < b.to && slotEnd > b.from);
+        const sameGroupSlot = overlapping.filter(
+          (b) =>
+            isGroup &&
+            serviceId &&
+            b.serviceId === serviceId &&
+            b.from === slotStart &&
+            b.to === slotEnd,
+        );
+        const hasBlockingOverlap = isGroup
+          ? overlapping.length !== sameGroupSlot.length ||
+            sameGroupSlot.length >= Math.max(1, capacity)
+          : overlapping.length > 0;
 
-        if (!overlaps) {
+        if (!hasBlockingOverlap) {
           slots.push({
             startsAt: new Date(slotStart).toISOString(),
             endsAt: new Date(slotEnd).toISOString(),

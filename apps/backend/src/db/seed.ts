@@ -2,6 +2,20 @@ import { prisma } from './prisma.js';
 import { hash } from 'bcryptjs';
 import { randomBytes } from 'node:crypto';
 
+const demoMarketingSeedEnabled = process.env['ECHOSUPPORT_DEMO_MARKETING_SEED'] === 'true';
+
+function getMarketingAllowedOrigins() {
+  const publicBaseUrl = process.env['PUBLIC_BASE_URL'];
+  if (!publicBaseUrl) return [];
+
+  try {
+    return [new URL(publicBaseUrl).origin];
+  } catch {
+    console.warn('Ignoring invalid PUBLIC_BASE_URL while preparing demo marketing seed');
+    return [];
+  }
+}
+
 async function main() {
   console.log('🌱 Seeding database...');
   const adminEmail = process.env['ADMIN_EMAIL'];
@@ -35,16 +49,33 @@ async function main() {
 
   console.log(`✅ User: ${user.email}`);
 
+  const baseAgentData = {
+    tenantId: tenant.id,
+    name: 'Demo Agent',
+    role: 'Customer Support Assistant',
+    systemPrompt:
+      'You are a helpful customer support assistant. Answer questions clearly and concisely.',
+  };
+  const marketingAgentData = {
+    name: 'EchoSupport Demo Assistant',
+    role: 'AI support concierge',
+    systemPrompt:
+      'You are the EchoSupport demo assistant. Show how EchoSupport helps teams answer customer questions, escalate to operators, collect CSAT, and prepare bookings. Be concise, practical, and transparent when a real provider key or knowledge source is missing.',
+    greetingMessage:
+      'Hi! I can show how EchoSupport handles AI support, operator handoff, CSAT, and booking workflows.',
+    proactiveMessageDelay: 8,
+    proactiveMessageText: 'Want to see how EchoSupport answers before a human joins?',
+    allowedOrigins: getMarketingAllowedOrigins(),
+  };
+  const optInAgentData = demoMarketingSeedEnabled ? marketingAgentData : {};
+
   const agent = await prisma.agent.upsert({
     where: { id: 'demo-agent-0001' },
-    update: {},
+    update: optInAgentData,
     create: {
       id: 'demo-agent-0001',
-      tenantId: tenant.id,
-      name: 'Demo Agent',
-      role: 'Customer Support Assistant',
-      systemPrompt:
-        'You are a helpful customer support assistant. Answer questions clearly and concisely.',
+      ...baseAgentData,
+      ...optInAgentData,
       publicKey: `pk_${randomBytes(16).toString('hex')}`,
     },
   });

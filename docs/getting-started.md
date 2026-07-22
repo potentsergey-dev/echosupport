@@ -58,7 +58,7 @@ Sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `.env`. Compose automatical
 a demo tenant, the initial owner, and a `Demo Agent`. Open that agent from the sidebar and
 work through these tabs:
 
-1. Profile: check the greeting, model, language, session TTL, and allowed website origins.
+1. Profile: check the greeting, model, interface language, session TTL, and allowed website origins.
 2. API keys: save provider keys only when you want real chat, embeddings, or speech-to-text.
 3. Knowledge base: upload PDF, DOCX, TXT, MD, or HTML files, or add public `http`/`https`
    URL sources. Run indexing and wait for `INDEXED`; `FAILED` items show the error inline.
@@ -66,7 +66,14 @@ work through these tabs:
    is listed in Profile.
 
 The global pages in the sidebar cover operator work after launch: Inbox for handoff,
-Specialists, Services, Appointments, and CSAT.
+Specialists, Services, Appointments, and CSAT. For a lightweight knowledge-base assistant,
+set `APP_EDITION=lite` before building; the admin UI then keeps the agent Profile, OpenRouter
+API keys, Knowledge base, and Embed tabs visible while hiding operator, booking, specialist,
+service, CSAT, session history, business-hours, and anti-abuse sections. See [Lite Installation](lite-installation.md) for the dedicated Lite setup path.
+
+The widget system UI supports Russian and English. On the agent Profile tab, use `Русский`
+or `English` to force system labels, placeholders, statuses, and errors, or keep `Auto` for
+the visitor browser language. Greeting text and AI answers are configured separately.
 
 You can run the install smoke against the stack:
 
@@ -95,6 +102,17 @@ http://localhost:5173/demo.html?agentKey=pk_your_agent_key&apiBase=http://localh
 
 If you are testing against local backend dev instead of Docker, use
 `apiBase=http://localhost:3000`.
+
+To send visitors from YouTube, TikTok, Instagram, ads, or public profiles directly into the
+chat, link to a page that has the widget installed and add `chat=open`:
+
+```text
+https://example.com/?chat=open&source=tiktok
+https://example.com/services?chat=open&source=youtube&scenario=booking
+```
+
+The widget opens automatically. Phones and tablets get a full-screen chat; desktop visitors
+stay on the site with the widget opened.
 
 For Internet deployment, terminate HTTPS at a reverse proxy and set `PUBLIC_BASE_URL`
 and `ADMIN_CORS_ORIGINS` to the HTTPS URL. Work through

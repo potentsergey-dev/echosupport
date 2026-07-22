@@ -8,6 +8,7 @@ import { prisma } from '../../db/prisma.js';
 import { env } from '../../config/env.js';
 import { encrypt, decrypt } from '../../services/crypto.js';
 import { clearAgentSecretsCache } from '../../services/agent-secrets.js';
+import { checkQdrantConnection } from '../../adapters/vectorstore/qdrant.js';
 
 // ── Zod schemas ─────────────────────────────────────────────────────────────
 
@@ -63,6 +64,38 @@ function generatePublicKey(): string {
 function maskSecret(value: string): string {
   if (value.length <= 8) return '***';
   return `${value.slice(0, 6)}...${value.slice(-4)}`;
+}
+
+type ConfigCheckStatus = 'ok' | 'warning' | 'error';
+
+interface ConfigCheckItem {
+  id: string;
+  label: string;
+  status: ConfigCheckStatus;
+  message: string;
+  action?: string;
+}
+
+function summarizeConfigStatus(items: ConfigCheckItem[]): ConfigCheckStatus {
+  if (items.some((item) => item.status === 'error')) return 'error';
+  if (items.some((item) => item.status === 'warning')) return 'warning';
+  return 'ok';
+}
+
+async function dependencyCheck(
+  id: string,
+  label: string,
+  check: () => Promise<unknown>,
+  okMessage: string,
+  errorMessage: string,
+  action: string,
+): Promise<ConfigCheckItem> {
+  try {
+    await check();
+    return { id, label, status: 'ok', message: okMessage };
+  } catch {
+    return { id, label, status: 'error', message: errorMessage, action };
+  }
 }
 
 // Agent fields safe to return in list and detail responses (never encryptedSecrets)
@@ -328,6 +361,159 @@ const agentRoutes: FastifyPluginAsync = async (fastify) => {
     clearAgentSecretsCache(req.params.id);
 
     return reply.send(masked);
+  });
+
+  // ── GET /admin/agents/:id/config-check ────────────────────────────────────
+  fastify.get<{ Params: { id: string } }>('/agents/:id/config-check', async (req, reply) => {
+    const agent = await prisma.agent.findFirst({
+      where: { id: req.params.id, tenantId: req.user.tenantId },
+      select: {
+        id: true,
+        isActive: true,
+        publicKey: true,
+        allowedOrigins: true,
+        encryptedSecrets: true,
+        llmModel: true,
+        embeddingModel: true,
+        documents: { select: { status: true, chunksCount: true } },
+        sources: { select: { status: true, pagesIndexed: true } },
+      },
+    });
+    if (!agent) return reply.status(404).send({ error: 'Agent not found' });
+
+    const encryptedSecrets = (agent.encryptedSecrets ?? {}) as Record<string, string>;
+    const hasAgentSecret = (key: string) => Boolean(encryptedSecrets[key]);
+    const hasChatKey = hasAgentSecret('openrouterKey') || Boolean(env.OPENROUTER_API_KEY);
+    const hasEmbeddingKey =
+      hasAgentSecret('openrouterEmbeddingKey') ||
+      hasAgentSecret('openaiEmbeddingKey') ||
+      hasAgentSecret('openaiKey') ||
+      hasAgentSecret('openrouterKey') ||
+      Boolean(env.OPENROUTER_EMBEDDING_API_KEY) ||
+      Boolean(env.OPENROUTER_API_KEY) ||
+      Boolean(env.OPENAI_API_KEY);
+
+    const indexedDocuments = agent.documents.filter((doc) => doc.status === 'INDEXED').length;
+    const indexedSources = agent.sources.filter((source) => source.status === 'INDEXED').length;
+    const failedKnowledge =
+      agent.documents.filter((doc) => doc.status === 'FAILED').length +
+      agent.sources.filter((source) => source.status === 'FAILED').length;
+    const hasIndexedKnowledge = indexedDocuments + indexedSources > 0;
+
+    const [database, qdrant] = await Promise.all([
+      dependencyCheck(
+        'database',
+        'PostgreSQL',
+        () => prisma.$queryRaw`SELECT 1`,
+        'База данных отвечает.',
+        'База данных недоступна.',
+        'Проверьте DATABASE_URL и контейнер PostgreSQL.',
+      ),
+      dependencyCheck(
+        'qdrant',
+        'Qdrant',
+        () => checkQdrantConnection(),
+        'Векторное хранилище отвечает.',
+        'Qdrant недоступен.',
+        'Проверьте QDRANT_URL, QDRANT_API_KEY и контейнер qdrant.',
+      ),
+    ]);
+
+    const items: ConfigCheckItem[] = [
+      database,
+      qdrant,
+      agent.isActive
+        ? { id: 'agent-active', label: 'Агент', status: 'ok', message: 'Агент активен.' }
+        : {
+            id: 'agent-active',
+            label: 'Агент',
+            status: 'error',
+            message: 'Агент выключен.',
+            action: 'Включите агента в профиле.',
+          },
+      hasChatKey
+        ? {
+            id: 'chat-key',
+            label: 'LLM ключ',
+            status: 'ok',
+            message: `Ключ для ответов настроен. Модель: ${agent.llmModel}.`,
+          }
+        : {
+            id: 'chat-key',
+            label: 'LLM ключ',
+            status: 'error',
+            message: 'Ключ для AI-ответов не найден.',
+            action: 'Добавьте OpenRouter/compatible API Key в API-ключах агента или в .env.',
+          },
+      hasEmbeddingKey
+        ? {
+            id: 'embedding-key',
+            label: 'Embeddings',
+            status: 'ok',
+            message: `Ключ для индексации настроен. Модель: ${agent.embeddingModel}.`,
+          }
+        : {
+            id: 'embedding-key',
+            label: 'Embeddings',
+            status: 'error',
+            message: 'Ключ для индексации документов не найден.',
+            action:
+              'Добавьте embeddings-ключ или общий compatible API Key. Endpoint должен поддерживать /v1/embeddings.',
+          },
+      hasIndexedKnowledge
+        ? {
+            id: 'knowledge',
+            label: 'База знаний',
+            status: failedKnowledge > 0 ? 'warning' : 'ok',
+            message: `Проиндексировано: файлов ${indexedDocuments}, сайтов ${indexedSources}.${
+              failedKnowledge > 0 ? ` Ошибок индексации: ${failedKnowledge}.` : ''
+            }`,
+            ...(failedKnowledge > 0
+              ? { action: 'Откройте базу знаний и проверьте элементы FAILED.' }
+              : {}),
+          }
+        : {
+            id: 'knowledge',
+            label: 'База знаний',
+            status: 'warning',
+            message: 'Нет проиндексированных документов или сайтов.',
+            action: 'Добавьте документ или сайт и запустите индексацию.',
+          },
+      agent.allowedOrigins.length > 0
+        ? {
+            id: 'origins',
+            label: 'Allowed origins',
+            status: 'ok',
+            message: `Разрешенных origin: ${agent.allowedOrigins.length}.`,
+          }
+        : {
+            id: 'origins',
+            label: 'Allowed origins',
+            status: 'warning',
+            message: 'Список allowed origins пуст.',
+            action: 'Для production укажите домены сайтов, где разрешен виджет.',
+          },
+      agent.publicKey
+        ? {
+            id: 'embed',
+            label: 'Виджет',
+            status: 'ok',
+            message: `Публичный ключ есть. Embed URL: ${env.PUBLIC_BASE_URL ?? env.APP_URL}.`,
+          }
+        : {
+            id: 'embed',
+            label: 'Виджет',
+            status: 'error',
+            message: 'Публичный ключ агента отсутствует.',
+            action: 'Создайте агента заново или восстановите publicKey в базе.',
+          },
+    ];
+
+    return reply.send({
+      status: summarizeConfigStatus(items),
+      checkedAt: new Date().toISOString(),
+      items,
+    });
   });
 
   // ── GET /admin/agents/:id/embed-snippet ───────────────────────────────────
