@@ -1,6 +1,7 @@
 import { useRef } from 'preact/hooks';
 import { inputText, isTyping } from '../signals';
 import { MicButton } from './MicButton';
+import { t } from '../i18n';
 
 export function MessageInput({ onSend }: { onSend: (text: string) => void }) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -37,7 +38,7 @@ export function MessageInput({ onSend }: { onSend: (text: string) => void }) {
         value={inputText.value}
         onInput={handleInput}
         onKeyDown={handleKeyDown}
-        placeholder="Напишите сообщение…"
+        placeholder={t('messagePlaceholder')}
         rows={1}
         disabled={isTyping.value}
         class="flex-1 resize-none rounded-xl border border-gray-300 bg-gray-50 px-3 py-2 text-sm text-gray-900 placeholder-gray-400 focus:border-indigo-400 focus:bg-white focus:outline-none focus:ring-1 focus:ring-indigo-400 disabled:opacity-50"
@@ -48,7 +49,7 @@ export function MessageInput({ onSend }: { onSend: (text: string) => void }) {
         onClick={handleSend}
         disabled={!inputText.value.trim() || isTyping.value}
         class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-indigo-600 text-white transition-colors hover:bg-indigo-700 disabled:opacity-40"
-        title="Отправить"
+        title={t('send')}
       >
         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width={2}>
           <path

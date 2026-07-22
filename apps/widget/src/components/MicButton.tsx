@@ -1,6 +1,7 @@
 import { useRef, useState } from 'preact/hooks';
 import { isRecording, inputText } from '../signals';
 import { sendAudio } from '../api';
+import { t } from '../i18n';
 
 export function MicButton() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
@@ -31,7 +32,7 @@ export function MicButton() {
             inputText.value = inputText.value ? `${inputText.value} ${text}` : text;
           }
         } catch (err) {
-          setError(err instanceof Error ? err.message : 'Ошибка транскрибации');
+          setError(err instanceof Error ? err.message : t('transcriptionFailed'));
         }
       };
 
@@ -39,7 +40,7 @@ export function MicButton() {
       recorder.start();
       isRecording.value = true;
     } catch {
-      setError('Нет доступа к микрофону');
+      setError(t('microphoneDenied'));
     }
   }
 
@@ -60,7 +61,7 @@ export function MicButton() {
     <div class="relative">
       <button
         onClick={handleClick}
-        title={isRecording.value ? 'Остановить запись' : 'Голосовой ввод'}
+        title={isRecording.value ? t('stopRecording') : t('voiceInput')}
         class={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full transition-colors ${
           isRecording.value
             ? 'bg-red-500 text-white animate-pulse'

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, Navigate } from 'react-router-dom';
+import { useParams, Navigate, useNavigate } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import {
   UserIcon,
@@ -12,6 +12,11 @@ import {
   EyeOffIcon,
   ClockIcon,
   ShieldIcon,
+  ActivityIcon,
+  CheckCircle2Icon,
+  AlertTriangleIcon,
+  ArrowRightIcon,
+  Trash2Icon,
 } from 'lucide-react';
 import {
   getAgent,
@@ -21,17 +26,21 @@ import {
   getSecrets,
   getBusinessHours,
   saveBusinessHours,
+  getAgentConfigCheck,
+  deleteAgent,
 } from '../lib/api';
 import { Layout, useToastContext } from '../components/Layout';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Label } from '../components/ui/Label';
 import { Textarea } from '../components/ui/Textarea';
-import type { Agent, BusinessHours, ScheduleEntry } from '../types';
+import type { Agent, BusinessHours, ConfigCheckItem, ScheduleEntry } from '../types';
 import { KnowledgePage } from './KnowledgePage';
 import { EmbedPage } from './EmbedPage';
+import { ConfigCheckPage } from './ConfigCheckPage';
 import { SessionsPage } from './SessionsPage';
 import { ProactiveMessageFields } from '../components/ProactiveMessageFields';
+import { isLiteEdition } from '../lib/app-edition';
 
 // ── Tab definitions ──────────────────────────────────────────────────────────
 
@@ -40,19 +49,23 @@ type Tab =
   | 'secrets'
   | 'knowledge'
   | 'embed'
+  | 'config-check'
   | 'sessions'
   | 'business-hours'
   | 'anti-abuse';
 
-const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-  { id: 'profile', label: 'Профиль', icon: <UserIcon size={16} /> },
-  { id: 'secrets', label: 'API-ключи', icon: <KeyIcon size={16} /> },
-  { id: 'knowledge', label: 'База знаний', icon: <BookOpenIcon size={16} /> },
-  { id: 'embed', label: 'Embed', icon: <CodeIcon size={16} /> },
+const TABS: { id: Tab; label: string; icon: React.ReactNode; lite?: boolean }[] = [
+  { id: 'profile', label: 'Профиль', icon: <UserIcon size={16} />, lite: true },
+  { id: 'secrets', label: 'API-ключи', icon: <KeyIcon size={16} />, lite: true },
+  { id: 'knowledge', label: 'База знаний', icon: <BookOpenIcon size={16} />, lite: true },
+  { id: 'embed', label: 'Embed', icon: <CodeIcon size={16} />, lite: true },
+  { id: 'config-check', label: 'Проверка', icon: <ActivityIcon size={16} />, lite: true },
   { id: 'sessions', label: 'Сессии', icon: <MessageSquareIcon size={16} /> },
   { id: 'business-hours', label: 'Часы работы', icon: <ClockIcon size={16} /> },
   { id: 'anti-abuse', label: 'Лимиты', icon: <ShieldIcon size={16} /> },
 ];
+
+const VISIBLE_TABS = isLiteEdition ? TABS.filter((tab) => tab.lite) : TABS;
 
 // ── TagsInput ─────────────────────────────────────────────────────────────────
 
@@ -286,18 +299,26 @@ function ProfileBlock({ agent }: { agent: Agent }) {
               className="mt-1"
             />
             <p className="mt-1 text-xs text-gray-400">
-              Модель должна быть доступна у выбранного провайдера, например OpenRouter.
+              Модель должна быть доступна у выбранного OpenAI-compatible провайдера: OpenRouter,
+              Ollama, vLLM или другой endpoint.
             </p>
           </div>
           <div>
-            <Label htmlFor="language">Язык ответов</Label>
-            <Input
+            <Label htmlFor="language">Язык интерфейса</Label>
+            <select
               id="language"
               value={form.language}
               onChange={(e) => setForm((f) => ({ ...f, language: e.target.value }))}
-              placeholder="auto"
-              className="mt-1"
-            />
+              className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            >
+              <option value="auto">Auto</option>
+              <option value="ru">Русский</option>
+              <option value="en">English</option>
+            </select>
+            <p className="mt-1 text-xs text-gray-400">
+              Auto использует язык браузера посетителя. Если язык не поддерживается, будет English.
+              AI отвечает на языке вопроса пользователя.
+            </p>
           </div>
           <div>
             <Label htmlFor="ttl">TTL сессии (минуты)</Label>
@@ -313,23 +334,25 @@ function ProfileBlock({ agent }: { agent: Agent }) {
               className="mt-1"
             />
           </div>
-          <div>
-            <Label htmlFor="stt-provider">STT провайдер</Label>
-            <select
-              id="stt-provider"
-              value={form.sttProvider}
-              onChange={(e) =>
-                setForm((f) => ({
-                  ...f,
-                  sttProvider: e.target.value as typeof form.sttProvider,
-                }))
-              }
-              className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
-            >
-              <option value="DEEPGRAM">Deepgram</option>
-              <option value="WHISPER">Whisper (OpenAI)</option>
-            </select>
-          </div>
+          {!isLiteEdition && (
+            <div>
+              <Label htmlFor="stt-provider">STT провайдер</Label>
+              <select
+                id="stt-provider"
+                value={form.sttProvider}
+                onChange={(e) =>
+                  setForm((f) => ({
+                    ...f,
+                    sttProvider: e.target.value as typeof form.sttProvider,
+                  }))
+                }
+                className="mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+              >
+                <option value="DEEPGRAM">Deepgram</option>
+                <option value="WHISPER">Whisper (OpenAI)</option>
+              </select>
+            </div>
+          )}
           <div className="sm:col-span-2">
             <Label>Разрешённые источники (CORS)</Label>
             <div className="mt-1">
@@ -418,18 +441,21 @@ function SecretsBlock({ agentId }: { agentId: string }) {
     label: string;
     placeholder: string;
     hint?: string;
+    lite?: boolean;
   }[] = [
     {
       key: 'openrouterKey',
-      label: 'OpenRouter API Key (чат)',
+      label: 'OpenRouter / compatible API Key (чат)',
       placeholder: 'sk-or-...',
-      hint: 'Используется для генерации ответов через LLM',
+      hint: 'Используется для генерации ответов через OpenRouter или compatible endpoint. Для Ollama можно указать служебное значение, например ollama.',
+      lite: true,
     },
     {
       key: 'openrouterEmbeddingKey',
-      label: 'OpenRouter API Key (embeddings)',
+      label: 'OpenRouter / compatible API Key (embeddings)',
       placeholder: 'sk-or-...',
-      hint: 'Отдельный ключ для векторизации — удобно для установки независимых лимитов',
+      hint: 'Отдельный ключ для векторизации. Для локального compatible endpoint должен поддерживаться /v1/embeddings.',
+      lite: true,
     },
     {
       key: 'openaiKey',
@@ -446,17 +472,25 @@ function SecretsBlock({ agentId }: { agentId: string }) {
     { key: 'deepgramKey', label: 'Deepgram API Key', placeholder: 'dg_...' },
   ];
 
-  const hasAnyKey = Object.values(fields).some((v) => v.trim() !== '');
+  const visibleSecretFields = isLiteEdition
+    ? secretFields.filter((field) => field.lite)
+    : secretFields;
+  const visibleSecretKeys = new Set(visibleSecretFields.map((field) => field.key));
+  const hasAnyKey = Object.entries(fields).some(
+    ([key, value]) => visibleSecretKeys.has(key as keyof typeof fields) && value.trim() !== '',
+  );
 
   return (
     <section className="rounded-xl border border-gray-200 bg-white p-6">
       <h3 className="mb-1 text-base font-semibold text-gray-900">API-ключи</h3>
       <p className="mb-5 text-sm text-gray-500">
-        Ключи шифруются перед сохранением. Оставьте поле пустым, чтобы не менять текущий ключ. Для
-        первого AI-ответа нужен OpenRouter API Key для чата или глобальный ключ в .env.
+        Ключи шифруются перед сохранением. Оставьте поле пустым, чтобы не менять текущий ключ.{' '}
+        {isLiteEdition
+          ? 'В Lite-режиме обычно достаточно ключа для чата и ключа для embeddings. Это может быть OpenRouter или OpenAI-compatible endpoint.'
+          : 'Для первого AI-ответа нужен ключ для чата или глобальный compatible ключ в .env.'}
       </p>
       <div className="space-y-4">
-        {secretFields.map(({ key, label, placeholder, hint }) => (
+        {visibleSecretFields.map(({ key, label, placeholder, hint }) => (
           <div key={key}>
             <Label htmlFor={key}>{label}</Label>
             {hint && <p className="mt-0.5 text-xs text-gray-400">{hint}</p>}
@@ -498,11 +532,226 @@ function SecretsBlock({ agentId }: { agentId: string }) {
   );
 }
 
+// ── Delete agent block ────────────────────────────────────────────────────────
+
+function DeleteAgentBlock({ agent }: { agent: Agent }) {
+  const navigate = useNavigate();
+  const qc = useQueryClient();
+  const { addToast } = useToastContext();
+  const [confirmName, setConfirmName] = useState('');
+  const canDelete = confirmName.trim() === agent.name;
+
+  const mutation = useMutation({
+    mutationFn: () => deleteAgent(agent.id),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['agents'] });
+      qc.removeQueries({ queryKey: ['agent', agent.id] });
+      addToast('Агент удален');
+      navigate('/agents');
+    },
+    onError: (err) => addToast(err.message, 'error'),
+  });
+
+  return (
+    <section className="mt-8 rounded-xl border border-red-200 bg-red-50 p-6">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="max-w-2xl">
+          <div className="flex items-center gap-2 text-red-800">
+            <Trash2Icon size={18} />
+            <h3 className="text-base font-semibold">Удаление агента</h3>
+          </div>
+          <p className="mt-2 text-sm leading-6 text-red-700">
+            Будут удалены настройки агента, документы, источники базы знаний, история сессий и
+            сообщения этого агента. Действие нельзя отменить.
+          </p>
+          <Label htmlFor="delete-agent-confirm" className="mt-4 text-red-900">
+            Для подтверждения введите название агента: {agent.name}
+          </Label>
+          <Input
+            id="delete-agent-confirm"
+            value={confirmName}
+            onChange={(e) => setConfirmName(e.target.value)}
+            className="mt-1 border-red-200 bg-white focus:border-red-500 focus:ring-red-500"
+            placeholder={agent.name}
+          />
+        </div>
+        <Button
+          variant="danger"
+          className="shrink-0"
+          disabled={!canDelete}
+          loading={mutation.isPending}
+          onClick={() => mutation.mutate()}
+        >
+          Удалить агента
+        </Button>
+      </div>
+    </section>
+  );
+}
+// ── First-run checklist ───────────────────────────────────────────────────────
+
+type QuickStartStep = {
+  id: string;
+  label: string;
+  description: string;
+  status: 'ok' | 'warning' | 'error';
+  tab: Tab;
+};
+
+function pickCheck(items: ConfigCheckItem[] | undefined, id: string): ConfigCheckItem | undefined {
+  return items?.find((item) => item.id === id);
+}
+
+function worstStatus(items: Array<ConfigCheckItem | undefined>): 'ok' | 'warning' | 'error' {
+  if (items.some((item) => item?.status === 'error')) return 'error';
+  if (items.some((item) => item?.status === 'warning' || !item)) return 'warning';
+  return 'ok';
+}
+
+function QuickStartPanel({ agent, onOpenTab }: { agent: Agent; onOpenTab: (tab: Tab) => void }) {
+  const query = useQuery({
+    queryKey: ['agent-config-check', agent.id],
+    queryFn: () => getAgentConfigCheck(agent.id),
+  });
+  const items = query.data?.items;
+  const chatKey = pickCheck(items, 'chat-key');
+  const embeddingKey = pickCheck(items, 'embedding-key');
+  const knowledge = pickCheck(items, 'knowledge');
+  const origins = pickCheck(items, 'origins');
+  const embed = pickCheck(items, 'embed');
+  const profileStatus =
+    agent.isActive && agent.name.trim() && agent.systemPrompt.trim() ? 'ok' : 'warning';
+
+  const steps: QuickStartStep[] = [
+    {
+      id: 'profile',
+      label: 'Профиль агента',
+      description:
+        profileStatus === 'ok'
+          ? 'Название, промпт и активность агента заполнены.'
+          : 'Проверьте название, системный промпт и что агент включен.',
+      status: profileStatus,
+      tab: 'profile',
+    },
+    {
+      id: 'keys',
+      label: 'AI-ключи',
+      description:
+        chatKey?.status === 'ok' && embeddingKey?.status === 'ok'
+          ? 'Ключи для ответов и индексации настроены.'
+          : 'Добавьте ключ для AI-ответов и embeddings или compatible endpoint.',
+      status: worstStatus([chatKey, embeddingKey]),
+      tab: 'secrets',
+    },
+    {
+      id: 'knowledge',
+      label: 'База знаний',
+      description: knowledge?.message ?? 'Добавьте документы или сайт и запустите индексацию.',
+      status: knowledge?.status ?? 'warning',
+      tab: 'knowledge',
+    },
+    {
+      id: 'origins',
+      label: 'Домены сайта',
+      description: origins?.message ?? 'Для production укажите сайты, где разрешен виджет.',
+      status: origins?.status ?? 'warning',
+      tab: 'profile',
+    },
+    {
+      id: 'embed',
+      label: 'Установка виджета',
+      description:
+        embed?.status === 'ok'
+          ? 'Публичный ключ готов, embed-код можно установить.'
+          : 'Проверьте embed-код и публичный ключ агента.',
+      status: embed?.status ?? 'warning',
+      tab: 'embed',
+    },
+  ];
+
+  const completed = steps.filter((step) => step.status === 'ok').length;
+  const hasBlockingIssues = steps.some((step) => step.status === 'error');
+  const statusLabel = hasBlockingIssues
+    ? 'Есть обязательные исправления'
+    : completed === steps.length
+      ? 'Агент готов к проверке на сайте'
+      : 'Осталось несколько шагов';
+
+  return (
+    <section className="mb-6 rounded-xl border border-gray-200 bg-white p-5 shadow-sm">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-base font-semibold text-gray-900">Быстрый старт</h2>
+          <p className="mt-1 text-sm text-gray-500">
+            Минимальные шаги, чтобы агент отвечал по документам и виджет можно было установить на
+            сайт.
+          </p>
+        </div>
+        <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-medium text-gray-600">
+          {completed}/{steps.length} готово
+        </span>
+      </div>
+
+      <div className="mt-4 grid gap-3 sm:grid-cols-2">
+        {steps.map((step) => {
+          const iconClass =
+            step.status === 'ok'
+              ? 'border-green-200 bg-green-50 text-green-700'
+              : step.status === 'error'
+                ? 'border-red-200 bg-red-50 text-red-700'
+                : 'border-amber-200 bg-amber-50 text-amber-700';
+          return (
+            <button
+              key={step.id}
+              type="button"
+              onClick={() => onOpenTab(step.tab)}
+              className="flex min-h-24 items-start gap-3 rounded-lg border border-gray-200 bg-white p-4 text-left transition-colors hover:border-indigo-200 hover:bg-indigo-50/40 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+            >
+              <span className={`mt-0.5 rounded-full border p-1 ${iconClass}`}>
+                {step.status === 'ok' ? (
+                  <CheckCircle2Icon size={16} />
+                ) : (
+                  <AlertTriangleIcon size={16} />
+                )}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-semibold text-gray-900">{step.label}</span>
+                <span className="mt-1 block text-xs leading-5 text-gray-500">
+                  {step.description}
+                </span>
+              </span>
+              <ArrowRightIcon size={16} className="mt-1 flex-shrink-0 text-gray-400" />
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 pt-4">
+        <p className="text-sm font-medium text-gray-700">{statusLabel}</p>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => onOpenTab('config-check')}
+          loading={query.isFetching}
+        >
+          Открыть полную проверку
+        </Button>
+      </div>
+    </section>
+  );
+}
 // ── Agent Settings Page ───────────────────────────────────────────────────────
 
 export function AgentSettingsPage() {
   const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState<Tab>('profile');
+  const visibleTabs = VISIBLE_TABS;
+
+  useEffect(() => {
+    if (!visibleTabs.some((tab) => tab.id === activeTab)) {
+      setActiveTab('profile');
+    }
+  }, [activeTab, visibleTabs]);
 
   const {
     data: agent,
@@ -550,9 +799,11 @@ export function AgentSettingsPage() {
               </div>
             </div>
 
+            <QuickStartPanel agent={agent} onOpenTab={setActiveTab} />
+
             {/* Tabs */}
             <div className="mb-6 flex gap-1 rounded-xl border border-gray-200 bg-white p-1">
-              {TABS.map((tab) => (
+              {visibleTabs.map((tab) => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
@@ -569,13 +820,21 @@ export function AgentSettingsPage() {
             </div>
 
             {/* Tab content */}
-            {activeTab === 'profile' && <ProfileBlock agent={agent} />}
+            {activeTab === 'profile' && (
+              <>
+                <ProfileBlock agent={agent} />
+                <DeleteAgentBlock agent={agent} />
+              </>
+            )}
             {activeTab === 'secrets' && <SecretsBlock agentId={agent.id} />}
             {activeTab === 'knowledge' && <KnowledgePage agentId={agent.id} />}
             {activeTab === 'embed' && <EmbedPage agentId={agent.id} />}
-            {activeTab === 'sessions' && <SessionsPage agentId={agent.id} />}
-            {activeTab === 'business-hours' && <BusinessHoursBlock agentId={agent.id} />}
-            {activeTab === 'anti-abuse' && <AntiAbuseBlock agent={agent} />}
+            {activeTab === 'config-check' && <ConfigCheckPage agentId={agent.id} />}
+            {!isLiteEdition && activeTab === 'sessions' && <SessionsPage agentId={agent.id} />}
+            {!isLiteEdition && activeTab === 'business-hours' && (
+              <BusinessHoursBlock agentId={agent.id} />
+            )}
+            {!isLiteEdition && activeTab === 'anti-abuse' && <AntiAbuseBlock agent={agent} />}
           </>
         )}
       </div>

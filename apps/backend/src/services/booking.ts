@@ -40,7 +40,11 @@ export function hasOverlappingWorkingRanges(entries: WorkingRange[]): boolean {
 export interface BookableServiceResult {
   id: string | null;
   durationMin: number;
+  isGroup: boolean;
+  capacity: number;
 }
+
+export type SlotAvailabilityError = 'SLOT_TAKEN' | 'SLOT_FULL';
 
 export async function getBookableServiceForSpecialist({
   tenantId,
@@ -51,7 +55,7 @@ export async function getBookableServiceForSpecialist({
   specialistId: string;
   serviceId?: string | null | undefined;
 }): Promise<BookableServiceResult | null> {
-  if (!serviceId) return { id: null, durationMin: 60 };
+  if (!serviceId) return { id: null, durationMin: 60, isGroup: false, capacity: 1 };
 
   const service = await prisma.service.findFirst({
     where: {
@@ -60,9 +64,62 @@ export async function getBookableServiceForSpecialist({
       isActive: true,
       OR: [{ specialistId: null }, { specialistId }],
     },
-    select: { id: true, durationMin: true },
+    select: { id: true, durationMin: true, isGroup: true, capacity: true },
   });
 
   if (!service) return null;
-  return { id: service.id, durationMin: service.durationMin };
+  return {
+    id: service.id,
+    durationMin: service.durationMin,
+    isGroup: service.isGroup,
+    capacity: service.capacity,
+  };
+}
+
+export async function assertSlotCanAcceptAppointment({
+  specialistId,
+  serviceId,
+  startsAt,
+  endsAt,
+  isGroup,
+  capacity,
+  excludeAppointmentId,
+  db = prisma,
+}: {
+  specialistId: string;
+  serviceId: string | null;
+  startsAt: Date;
+  endsAt: Date;
+  isGroup: boolean;
+  capacity: number;
+  excludeAppointmentId?: string;
+  db?: Pick<typeof prisma, 'appointment'>;
+}): Promise<void> {
+  const overlappingAppointments = await db.appointment.findMany({
+    where: {
+      specialistId,
+      status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+      ...(excludeAppointmentId ? { id: { not: excludeAppointmentId } } : {}),
+      startsAt: { lt: endsAt },
+      endsAt: { gt: startsAt },
+    },
+    select: { id: true, serviceId: true, startsAt: true, endsAt: true },
+  });
+
+  if (!isGroup || !serviceId) {
+    if (overlappingAppointments.length > 0) throw new Error('SLOT_TAKEN');
+    return;
+  }
+
+  const isSameGroupSlot = (appointment: (typeof overlappingAppointments)[number]) =>
+    appointment.serviceId === serviceId &&
+    appointment.startsAt.getTime() === startsAt.getTime() &&
+    appointment.endsAt.getTime() === endsAt.getTime();
+
+  if (overlappingAppointments.some((appointment) => !isSameGroupSlot(appointment))) {
+    throw new Error('SLOT_TAKEN');
+  }
+
+  const occupiedSeats = overlappingAppointments.filter(isSameGroupSlot).length;
+  if (occupiedSeats >= Math.max(1, capacity)) throw new Error('SLOT_FULL');
 }

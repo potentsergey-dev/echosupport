@@ -14,6 +14,7 @@ vi.mock('../services/retriever.js', () => ({
 }));
 
 vi.mock('../adapters/llm/openrouter.js', () => ({
+  chatCompletion: vi.fn(),
   chatStream: vi.fn(),
 }));
 

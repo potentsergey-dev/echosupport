@@ -50,6 +50,44 @@ describe('slot finder', () => {
     expect(slots.map((slot) => new Date(slot.startsAt).getHours())).toEqual([9, 11]);
   });
 
+  it('keeps group slots available until capacity is reached', async () => {
+    vi.mocked(prisma.specialist.findUnique).mockResolvedValue({
+      isActive: true,
+      workingHours: [{ dayOfWeek: 1, fromMinutes: 9 * 60, toMinutes: 11 * 60 }],
+    } as never);
+    vi.mocked(prisma.service.findUnique).mockResolvedValue({
+      durationMin: 60,
+      isGroup: true,
+      capacity: 2,
+    } as never);
+    vi.mocked(prisma.appointment.findMany).mockResolvedValue([
+      {
+        serviceId: 'service-1',
+        startsAt: new Date('2026-06-29T09:00:00'),
+        endsAt: new Date('2026-06-29T10:00:00'),
+      },
+      {
+        serviceId: 'service-1',
+        startsAt: new Date('2026-06-29T10:00:00'),
+        endsAt: new Date('2026-06-29T11:00:00'),
+      },
+      {
+        serviceId: 'service-1',
+        startsAt: new Date('2026-06-29T10:00:00'),
+        endsAt: new Date('2026-06-29T11:00:00'),
+      },
+    ] as never);
+
+    const slots = await findAvailableSlots(
+      'specialist-1',
+      'service-1',
+      new Date('2026-06-29T09:00:00'),
+      new Date('2026-06-29T11:00:00'),
+    );
+
+    expect(slots).toHaveLength(1);
+    expect(new Date(slots[0]!.startsAt).getHours()).toBe(9);
+  });
   it('checks conflicts and working-hour boundaries', async () => {
     vi.mocked(prisma.appointment.findFirst).mockResolvedValueOnce(null);
     await expect(

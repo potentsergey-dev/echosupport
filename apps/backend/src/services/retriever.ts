@@ -57,27 +57,35 @@ export async function retrieve(
     must: [{ key: 'agent_id', match: { value: agentId } }],
   };
 
-  if (sourcePriority === 'MERGE') {
-    return toChunks(await searchPoints(agent.tenantId, queryVector, agentFilter, topK));
+  try {
+    if (sourcePriority === 'MERGE') {
+      return toChunks(await searchPoints(agent.tenantId, queryVector, agentFilter, topK));
+    }
+
+    // FILES_FIRST or URL_FIRST: try preferred source type, fall back to all if too few results
+    const preferredType = sourcePriority === 'FILES_FIRST' ? 'FILE' : 'URL';
+    const preferredFilter = {
+      must: [
+        { key: 'agent_id', match: { value: agentId } },
+        { key: 'source_type', match: { value: preferredType } },
+      ],
+    };
+
+    const preferred = await searchPoints(agent.tenantId, queryVector, preferredFilter, topK);
+    if (preferred.length >= Math.ceil(topK / 2)) {
+      return toChunks(preferred);
+    }
+
+    // Not enough from preferred source — fill from all sources
+    const fallback = await searchPoints(agent.tenantId, queryVector, agentFilter, topK);
+    return toChunks(fallback);
+  } catch (searchErr) {
+    console.warn(
+      '[retriever] Vector search failed, skipping knowledge-base retrieval:',
+      sanitizeErrorMessage(searchErr),
+    );
+    return [];
   }
-
-  // FILES_FIRST or URL_FIRST: try preferred source type, fall back to all if too few results
-  const preferredType = sourcePriority === 'FILES_FIRST' ? 'FILE' : 'URL';
-  const preferredFilter = {
-    must: [
-      { key: 'agent_id', match: { value: agentId } },
-      { key: 'source_type', match: { value: preferredType } },
-    ],
-  };
-
-  const preferred = await searchPoints(agent.tenantId, queryVector, preferredFilter, topK);
-  if (preferred.length >= Math.ceil(topK / 2)) {
-    return toChunks(preferred);
-  }
-
-  // Not enough from preferred source — fill from all sources
-  const fallback = await searchPoints(agent.tenantId, queryVector, agentFilter, topK);
-  return toChunks(fallback);
 }
 
 function toChunks(results: Awaited<ReturnType<typeof searchPoints>>): RetrievedChunk[] {

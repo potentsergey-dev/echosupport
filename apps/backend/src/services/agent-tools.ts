@@ -19,7 +19,7 @@ import { isBusinessHoursNow, getOutOfHoursMessage } from './business-hours.js';
 import { publishToOperators } from './realtime-hub.js';
 import { findAvailableSlots, isSlotWithinWorkingHours } from './slot-finder.js';
 import { normalizeQuickReplies } from './quick-replies.js';
-import { getBookableServiceForSpecialist } from './booking.js';
+import { assertSlotCanAcceptAppointment, getBookableServiceForSpecialist } from './booking.js';
 
 // ── Tool schemas (OpenAI function-calling format) ─────────────────────────────
 
@@ -378,6 +378,8 @@ export async function executeTool(
           description: true,
           durationMin: true,
           priceLabel: true,
+          isGroup: true,
+          capacity: true,
           specialistId: true,
         },
         orderBy: { name: 'asc' },
@@ -525,16 +527,15 @@ export async function executeTool(
       // Race-condition safe slot check + create in transaction
       const appointment = await prisma
         .$transaction(async (tx) => {
-          // Lock check: find any conflicting appointment
-          const conflict = await tx.appointment.findFirst({
-            where: {
-              specialistId,
-              status: { notIn: ['CANCELLED'] },
-              startsAt: { lt: endsAt },
-              endsAt: { gt: startsAt },
-            },
+          await assertSlotCanAcceptAppointment({
+            specialistId,
+            serviceId: bookableService.id,
+            startsAt,
+            endsAt,
+            isGroup: bookableService.isGroup,
+            capacity: bookableService.capacity,
+            db: tx,
           });
-          if (conflict) throw new Error('SLOT_TAKEN');
 
           return tx.appointment.create({
             data: {
@@ -554,15 +555,18 @@ export async function executeTool(
           });
         })
         .catch((err: Error) => {
-          if (err.message === 'SLOT_TAKEN') return null;
+          if (err.message === 'SLOT_TAKEN' || err.message === 'SLOT_FULL') return err.message;
           throw err;
         });
 
-      if (!appointment) {
+      if (appointment === 'SLOT_TAKEN' || appointment === 'SLOT_FULL') {
         return {
           result: JSON.stringify({
             success: false,
-            error: 'That time slot is no longer available. Please choose another slot.',
+            error:
+              appointment === 'SLOT_FULL'
+                ? 'This group session is already full. Please choose another time.'
+                : 'That time slot is no longer available. Please choose another slot.',
           }),
         };
       }

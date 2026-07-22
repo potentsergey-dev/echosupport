@@ -5,6 +5,7 @@ import type {
   Document,
   KnowledgeSource,
   MaskedSecrets,
+  ConfigCheckReport,
   Session,
   InboxSession,
   InboxSessionDetail,
@@ -18,8 +19,26 @@ import type {
 
 const BASE_URL = (import.meta.env['VITE_API_URL'] as string | undefined) ?? '';
 
+function translateApiError(message: string): string {
+  const translations: Record<string, string> = {
+    "The requested time is outside the specialist's working hours.":
+      'Выбранное время вне рабочих часов специалиста. Проверьте расписание специалиста или выберите другое время.',
+    'Time slot is already booked. Please choose another.':
+      'Это время уже занято. Выберите другой свободный слот.',
+    'This group session is already full. Please choose another time.':
+      'Групповое занятие на это время уже заполнено. Выберите другое время.',
+    'Appointment time must be in the future': 'Время записи должно быть в будущем.',
+    'Specialist not found': 'Специалист не найден или неактивен.',
+    'Service not found for this specialist': 'Эта услуга недоступна для выбранного специалиста.',
+    'Working hours must not overlap on the same day':
+      'Рабочие часы не должны пересекаться в пределах одного дня.',
+  };
+
+  return translations[message] ?? message;
+}
+
 function formatApiError(error: unknown, fallback: string): string {
-  if (typeof error === 'string' && error.trim()) return error;
+  if (typeof error === 'string' && error.trim()) return translateApiError(error);
 
   if (Array.isArray(error)) {
     const messages = error.filter((item): item is string => typeof item === 'string' && !!item);
@@ -37,7 +56,7 @@ function formatApiError(error: unknown, fallback: string): string {
     if (fieldErrors) return fieldErrors;
   }
 
-  return fallback;
+  return translateApiError(fallback);
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -144,6 +163,10 @@ export function getEmbedSnippet(
   id: string,
 ): Promise<{ snippet: string; agentKey: string; publicBaseUrl: string }> {
   return request(`/admin/agents/${id}/embed-snippet`);
+}
+
+export function getAgentConfigCheck(id: string): Promise<ConfigCheckReport> {
+  return request(`/admin/agents/${id}/config-check`);
 }
 
 // ── Documents ────────────────────────────────────────────────────────────────
@@ -364,6 +387,8 @@ export function createService(data: {
   priceLabel?: string | null;
   description?: string | null;
   specialistId?: string | null;
+  isGroup?: boolean;
+  capacity?: number;
   isActive?: boolean;
 }): Promise<Service> {
   return request('/admin/services', {
@@ -380,6 +405,8 @@ export function updateService(
     priceLabel: string | null;
     description: string | null;
     specialistId: string | null;
+    isGroup: boolean;
+    capacity: number;
     isActive: boolean;
   }>,
 ): Promise<Service> {

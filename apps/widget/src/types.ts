@@ -3,6 +3,7 @@ export interface AgentInfo {
   role: string | null;
   avatarUrl: string | null;
   greetingMessage: string | null;
+  language?: string | null;
   proactiveMessageDelay: number | null;
   proactiveMessageText: string | null;
 }

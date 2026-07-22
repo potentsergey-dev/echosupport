@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'preact/hooks';
 import type { Message } from '../types';
 import { agentInfo } from '../signals';
+import { t } from '../i18n';
 
 function UserBubble({ text }: { text: string }) {
   return (
@@ -50,7 +51,7 @@ function OperatorBubble({ text }: { text: string }) {
         O
       </div>
       <div class="max-w-[75%] rounded-2xl rounded-bl-sm bg-emerald-50 border border-emerald-200 px-3.5 py-2 text-sm text-gray-800 shadow-sm">
-        <p class="text-[10px] font-semibold text-emerald-600 mb-0.5">Оператор</p>
+        <p class="text-[10px] font-semibold text-emerald-600 mb-0.5">{t('operator')}</p>
         {text}
       </div>
     </div>
@@ -83,7 +84,7 @@ export function MessageList({ messages }: { messages: Message[] }) {
           <AssistantBubble
             key={msg.id}
             text={msg.text}
-            agentName={agent?.name ?? 'Agent'}
+            agentName={agent?.name ?? t('agentFallback')}
             avatarUrl={agent?.avatarUrl ?? null}
           />
         );

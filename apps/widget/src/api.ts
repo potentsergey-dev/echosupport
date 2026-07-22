@@ -9,6 +9,7 @@ import {
   operatorTyping,
   handoffPending,
   quickReplies,
+  csatDone,
 } from './signals';
 import type {
   SseDeltaEvent,
@@ -17,6 +18,7 @@ import type {
   SseQuickRepliesEvent,
   WsVisitorEvent,
 } from './types';
+import { getWidgetLanguage, t } from './i18n';
 
 const VISITOR_KEY = 'es_visitor_id';
 
@@ -46,11 +48,40 @@ function getApiBase(): string {
   return apiBase.value.replace(/\/+$/, '');
 }
 
+function friendlyApiError(message: string, status?: number): string {
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes('origin not allowed')) return t('errorOriginNotAllowed');
+  if (
+    normalized.includes('missing x-agent-key') ||
+    normalized.includes('missing sessionid or agentkey')
+  ) {
+    return t('errorMissingAgentKey');
+  }
+  if (normalized.includes('agent not found') || normalized.includes('agent is inactive')) {
+    return t('errorAgentUnavailable');
+  }
+  if (normalized.includes('no llm api key') || normalized.includes('openrouter api key')) {
+    return t('errorMissingLlmKey');
+  }
+  if (normalized.includes('no embedding api key')) return t('errorMissingEmbeddingKey');
+  if (
+    status === 429 ||
+    normalized.includes('too many requests') ||
+    normalized.includes('rate limit')
+  ) {
+    return t('errorRateLimited');
+  }
+  if (status && status >= 500) return t('errorServerSetup');
+
+  return message;
+}
+
 async function parseErrorResponse(res: Response, fallback: string): Promise<string> {
   const body = (await res.json().catch(() => null)) as { error?: unknown } | null;
   const error = body?.error;
 
-  if (typeof error === 'string' && error.trim()) return error;
+  if (typeof error === 'string' && error.trim()) return friendlyApiError(error, res.status);
 
   if (error && typeof error === 'object') {
     const fieldErrors = Object.entries(error as Record<string, unknown>)
@@ -61,10 +92,10 @@ async function parseErrorResponse(res: Response, fallback: string): Promise<stri
           .map((message) => `${field}: ${message}`);
       })
       .join('; ');
-    if (fieldErrors) return fieldErrors;
+    if (fieldErrors) return friendlyApiError(fieldErrors, res.status);
   }
 
-  return fallback;
+  return friendlyApiError(fallback, res.status);
 }
 
 function getPageContext(): { pageUrl?: string; pageReferrer?: string } {
@@ -84,11 +115,11 @@ export async function initSession(): Promise<void> {
       'Content-Type': 'application/json',
       'X-Agent-Key': agentKey.value,
     },
-    body: JSON.stringify({ visitorId, ...getPageContext() }),
+    body: JSON.stringify({ visitorId, language: getWidgetLanguage(), ...getPageContext() }),
   });
 
   if (!res.ok) {
-    throw new Error(await parseErrorResponse(res, 'Failed to create session'));
+    throw new Error(await parseErrorResponse(res, t('createSessionFailed')));
   }
 
   const data = (await res.json()) as {
@@ -100,11 +131,17 @@ export async function initSession(): Promise<void> {
       greetingMessage: string | null;
       proactiveMessageDelay: number | null;
       proactiveMessageText: string | null;
+      language?: string | null;
     };
   };
 
   sessionId.value = data.sessionId;
   agentInfo.value = data.agent;
+  sessionStatus.value = 'ACTIVE';
+  handoffPending.value = false;
+  operatorTyping.value = false;
+  quickReplies.value = [];
+  csatDone.value = false;
 
   if (data.agent.greetingMessage) {
     messages.value = [{ id: 'greeting', role: 'assistant', text: data.agent.greetingMessage }];
@@ -115,13 +152,16 @@ export async function sendMessage(text: string): Promise<void> {
   const sid = sessionId.value;
   if (!sid || isTyping.value) return;
   quickReplies.value = [];
+  const expectsAssistant = sessionStatus.value === 'ACTIVE';
 
   // Add user message immediately
   messages.value = [...messages.value, { id: `u-${Date.now()}`, role: 'user', text }];
-  isTyping.value = true;
+  isTyping.value = expectsAssistant;
 
   const assistantId = `a-${Date.now()}`;
-  messages.value = [...messages.value, { id: assistantId, role: 'assistant', text: '' }];
+  if (expectsAssistant) {
+    messages.value = [...messages.value, { id: assistantId, role: 'assistant', text: '' }];
+  }
 
   try {
     const res = await fetch(`${getApiBase()}/api/v1/public/sessions/${sid}/messages`, {
@@ -166,7 +206,7 @@ export async function sendMessage(text: string): Promise<void> {
         try {
           const payload: unknown = JSON.parse(dataStr);
 
-          if (eventName === 'delta') {
+          if (eventName === 'delta' && expectsAssistant) {
             const delta = payload as SseDeltaEvent;
             assistantText += delta.text;
             messages.value = messages.value.map((m) =>
@@ -175,9 +215,11 @@ export async function sendMessage(text: string): Promise<void> {
           } else if (eventName === 'done') {
             const doneEvt = payload as SseDoneEvent;
             // Use the full text from the done event as the authoritative value
-            messages.value = messages.value.map((m) =>
-              m.id === assistantId ? { ...m, text: doneEvt.fullText } : m,
-            );
+            if (expectsAssistant) {
+              messages.value = messages.value.map((m) =>
+                m.id === assistantId ? { ...m, text: doneEvt.fullText } : m,
+              );
+            }
             if (doneEvt.handoffRequested) {
               handoffPending.value = true;
               sessionStatus.value = 'WAITING_OPERATOR';
@@ -187,7 +229,7 @@ export async function sendMessage(text: string): Promise<void> {
                 {
                   id: `sys-${Date.now()}`,
                   role: 'system',
-                  text: 'Запрос передан оператору. Ожидайте подключения…',
+                  text: t('handoffRequested'),
                 },
               ];
             }
@@ -206,11 +248,22 @@ export async function sendMessage(text: string): Promise<void> {
       }
     }
   } catch (err) {
-    messages.value = messages.value.map((m) =>
-      m.id === assistantId
-        ? { ...m, text: `⚠️ ${err instanceof Error ? err.message : 'Connection error'}` }
-        : m,
-    );
+    if (expectsAssistant) {
+      messages.value = messages.value.map((m) =>
+        m.id === assistantId
+          ? { ...m, text: `⚠️ ${err instanceof Error ? err.message : t('connectionError')}` }
+          : m,
+      );
+    } else {
+      messages.value = [
+        ...messages.value,
+        {
+          id: `sys-${Date.now()}`,
+          role: 'system',
+          text: err instanceof Error ? err.message : t('connectionError'),
+        },
+      ];
+    }
   } finally {
     isTyping.value = false;
   }
@@ -218,7 +271,7 @@ export async function sendMessage(text: string): Promise<void> {
 
 export async function sendAudio(audioBlob: Blob, mimeType: string): Promise<string> {
   const sid = sessionId.value;
-  if (!sid) throw new Error('No active session');
+  if (!sid) throw new Error(t('noActiveSession'));
 
   const form = new FormData();
   form.append('audio', audioBlob, `recording.${mimeType.split('/')[1] ?? 'webm'}`);
@@ -231,7 +284,7 @@ export async function sendAudio(audioBlob: Blob, mimeType: string): Promise<stri
 
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(body.error ?? 'Transcription failed');
+    throw new Error(friendlyApiError(body.error ?? t('transcriptionFailed'), res.status));
   }
 
   const data = (await res.json()) as { text: string };
@@ -278,8 +331,8 @@ export function connectVisitorWs(): void {
             id: `sys-${Date.now()}`,
             role: 'system',
             text: event.operatorName
-              ? `Оператор ${event.operatorName} подключился`
-              : 'Оператор подключился',
+              ? t('operatorJoinedNamed', { name: event.operatorName })
+              : t('operatorJoined'),
           },
         ];
       } else if (event.type === 'session:status' && event.sessionId === sid) {
@@ -293,7 +346,7 @@ export function connectVisitorWs(): void {
   ws.onclose = () => {
     visitorWs = null;
     // Reconnect if session still active
-    if (sessionId.value) {
+    if (sessionId.value && sessionStatus.value !== 'CLOSED' && sessionStatus.value !== 'RESOLVED') {
       wsReconnectTimer = setTimeout(connectVisitorWs, 5000);
     }
   };
@@ -308,9 +361,42 @@ export function disconnectVisitorWs(): void {
   visitorWs = null;
 }
 
+export async function closeSession(): Promise<void> {
+  const sid = sessionId.value;
+  if (!sid) throw new Error(t('noActiveSession'));
+  const res = await fetch(`${getApiBase()}/api/v1/public/sessions/${sid}/close`, {
+    method: 'POST',
+    headers: { 'X-Agent-Key': agentKey.value },
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: unknown };
+    const message = typeof body.error === 'string' ? body.error : t('closeSessionFailed');
+    throw new Error(friendlyApiError(message, res.status));
+  }
+  sessionStatus.value = 'CLOSED';
+  handoffPending.value = false;
+  operatorTyping.value = false;
+  quickReplies.value = [];
+  isTyping.value = false;
+  disconnectVisitorWs();
+}
+
+export async function startNewSession(): Promise<void> {
+  disconnectVisitorWs();
+  sessionId.value = null;
+  messages.value = [];
+  quickReplies.value = [];
+  handoffPending.value = false;
+  operatorTyping.value = false;
+  isTyping.value = false;
+  csatDone.value = false;
+  sessionStatus.value = 'ACTIVE';
+  await initSession();
+  connectVisitorWs();
+}
 export async function submitCsat(rating: 1 | -1, comment?: string): Promise<void> {
   const sid = sessionId.value;
-  if (!sid) throw new Error('No active session');
+  if (!sid) throw new Error(t('noActiveSession'));
   const normalizedComment = comment?.trim();
   const res = await fetch(`${getApiBase()}/api/v1/public/sessions/${sid}/csat`, {
     method: 'POST',
@@ -322,7 +408,7 @@ export async function submitCsat(rating: 1 | -1, comment?: string): Promise<void
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: unknown };
-    const message = typeof body.error === 'string' ? body.error : 'Failed to submit rating';
-    throw new Error(message);
+    const message = typeof body.error === 'string' ? body.error : t('submitRatingFailed');
+    throw new Error(friendlyApiError(message, res.status));
   }
 }

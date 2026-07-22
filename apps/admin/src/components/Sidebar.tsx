@@ -11,14 +11,18 @@ import {
   UsersIcon,
   LayersIcon,
   StarIcon,
+  LockIcon,
+  UnlockIcon,
 } from 'lucide-react';
-import { listAgents, createAgent } from '../lib/api';
+import { listAgents, createAgent, listInboxSessions } from '../lib/api';
 import { clearToken, clearRole, isAdminRole } from '../lib/auth';
+import { clearWorkingMode, useWorkingMode } from '../lib/working-mode';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Label } from './ui/Label';
 import { Textarea } from './ui/Textarea';
-import type { AgentListItem } from '../types';
+import type { AgentListItem, InboxSession } from '../types';
+import { isLiteEdition } from '../lib/app-edition';
 
 function NewAgentModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -79,12 +83,21 @@ function NewAgentModal({ onClose }: { onClose: () => void }) {
   );
 }
 
+function navClass(active: boolean) {
+  return `flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors mb-1 ${
+    active ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-700 hover:bg-gray-100'
+  }`;
+}
+
 export function Sidebar({ activeAgentId }: { activeAgentId?: string | undefined }) {
   const navigate = useNavigate();
   const location = useLocation();
   const qc = useQueryClient();
   const [showNewModal, setShowNewModal] = useState(false);
   const isAdmin = isAdminRole();
+  const [workingMode, setWorkingMode] = useWorkingMode();
+  const canUseWorkingMode = isAdmin && !isLiteEdition;
+  const showConfiguration = isAdmin && (isLiteEdition || !workingMode);
 
   const { data: agents = [] } = useQuery<AgentListItem[]>({
     queryKey: ['agents'],
@@ -92,9 +105,23 @@ export function Sidebar({ activeAgentId }: { activeAgentId?: string | undefined 
     enabled: isAdmin,
   });
 
+  const { data: openSessions = [] } = useQuery<InboxSession[]>({
+    queryKey: ['sidebar-inbox-summary'],
+    queryFn: () => listInboxSessions({ status: 'ALL_OPEN' }),
+    enabled: !isLiteEdition,
+    refetchInterval: 15000,
+  });
+
+  const unreadInboxCount = openSessions.reduce(
+    (total, session) => total + session.unreadByOperator,
+    0,
+  );
+  const openInboxCount = openSessions.length;
+
   function handleLogout() {
     clearToken();
     clearRole();
+    clearWorkingMode();
     qc.clear();
     navigate('/login');
   }
@@ -102,14 +129,12 @@ export function Sidebar({ activeAgentId }: { activeAgentId?: string | undefined 
   return (
     <>
       <aside className="flex h-screen w-64 flex-col border-r border-gray-200 bg-white">
-        {/* Logo */}
         <div className="flex h-14 items-center gap-2 border-b border-gray-200 px-4">
           <BotIcon size={20} className="text-indigo-600" />
           <span className="font-semibold text-gray-900">EchoSupport</span>
         </div>
 
-        {/* New agent button — admin only */}
-        {isAdmin && (
+        {showConfiguration && (
           <div className="p-3">
             <Button className="w-full" size="sm" onClick={() => setShowNewModal(true)}>
               <PlusIcon size={16} />
@@ -118,71 +143,79 @@ export function Sidebar({ activeAgentId }: { activeAgentId?: string | undefined 
           </div>
         )}
 
-        {/* Navigation */}
+        {canUseWorkingMode && (
+          <div className="px-3 pb-3 pt-3">
+            <button
+              type="button"
+              onClick={() => setWorkingMode(!workingMode)}
+              className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2 text-left text-sm transition-colors ${
+                workingMode
+                  ? 'border-amber-200 bg-amber-50 text-amber-700 hover:bg-amber-100'
+                  : 'border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+              title={workingMode ? 'Выключить рабочий режим' : 'Включить рабочий режим'}
+            >
+              {workingMode ? <LockIcon size={16} /> : <UnlockIcon size={16} />}
+              <span className="flex-1">{workingMode ? 'Рабочий режим' : 'Полный режим'}</span>
+            </button>
+            {workingMode && (
+              <p className="mt-2 px-1 text-xs leading-5 text-amber-700">
+                Настройки скрыты. Доступны чаты, записи и CSAT.
+              </p>
+            )}
+          </div>
+        )}
+
         <nav className="flex-1 overflow-y-auto px-2 py-1">
-          {/* Inbox link */}
-          <Link
-            to="/inbox"
-            className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors mb-1 ${
-              location.pathname === '/inbox'
-                ? 'bg-indigo-50 text-indigo-700 font-medium'
-                : 'text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            <InboxIcon size={16} className="shrink-0" />
-            <span className="flex-1">Входящие</span>
-          </Link>
-          {/* Appointments */}
-          <Link
-            to="/appointments"
-            className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors mb-1 ${
-              location.pathname.startsWith('/appointments')
-                ? 'bg-indigo-50 text-indigo-700 font-medium'
-                : 'text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            <CalendarIcon size={16} className="shrink-0" />
-            <span className="flex-1">Записи</span>
-          </Link>
-          {/* Specialists */}
-          <Link
-            to="/specialists"
-            className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors mb-1 ${
-              location.pathname.startsWith('/specialists')
-                ? 'bg-indigo-50 text-indigo-700 font-medium'
-                : 'text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            <UsersIcon size={16} className="shrink-0" />
-            <span className="flex-1">Специалисты</span>
-          </Link>
-          {/* Services */}
-          <Link
-            to="/services"
-            className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors mb-1 ${
-              location.pathname.startsWith('/services')
-                ? 'bg-indigo-50 text-indigo-700 font-medium'
-                : 'text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            <LayersIcon size={16} className="shrink-0" />
-            <span className="flex-1">Услуги</span>
-          </Link>
-          {/* CSAT */}
-          <Link
-            to="/csat"
-            className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors mb-1 ${
-              location.pathname.startsWith('/csat')
-                ? 'bg-indigo-50 text-indigo-700 font-medium'
-                : 'text-gray-700 hover:bg-gray-100'
-            }`}
-          >
-            <StarIcon size={16} className="shrink-0" />
-            <span className="flex-1">CSAT</span>
-          </Link>
-          <div className="my-1 border-t border-gray-100" />
-          {/* Agent settings links — admin only */}
-          {isAdmin &&
+          {!isLiteEdition && (
+            <>
+              <Link to="/inbox" className={navClass(location.pathname === '/inbox')}>
+                <InboxIcon size={16} className="shrink-0" />
+                <span className="flex-1">Входящие</span>
+                {unreadInboxCount > 0 ? (
+                  <span className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-bold leading-none text-white">
+                    {unreadInboxCount > 99 ? '99+' : unreadInboxCount}
+                  </span>
+                ) : openInboxCount > 0 ? (
+                  <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-semibold leading-none text-gray-700">
+                    {openInboxCount > 99 ? '99+' : openInboxCount}
+                  </span>
+                ) : null}
+              </Link>
+              <Link
+                to="/appointments"
+                className={navClass(location.pathname.startsWith('/appointments'))}
+              >
+                <CalendarIcon size={16} className="shrink-0" />
+                <span className="flex-1">Записи</span>
+              </Link>
+              {!workingMode && (
+                <>
+                  <Link
+                    to="/specialists"
+                    className={navClass(location.pathname.startsWith('/specialists'))}
+                  >
+                    <UsersIcon size={16} className="shrink-0" />
+                    <span className="flex-1">Специалисты</span>
+                  </Link>
+                  <Link
+                    to="/services"
+                    className={navClass(location.pathname.startsWith('/services'))}
+                  >
+                    <LayersIcon size={16} className="shrink-0" />
+                    <span className="flex-1">Услуги</span>
+                  </Link>
+                </>
+              )}
+              <Link to="/csat" className={navClass(location.pathname.startsWith('/csat'))}>
+                <StarIcon size={16} className="shrink-0" />
+                <span className="flex-1">CSAT</span>
+              </Link>
+              <div className="my-1 border-t border-gray-100" />
+            </>
+          )}
+
+          {showConfiguration &&
             agents.map((agent) => (
               <Link
                 key={agent.id}
@@ -210,12 +243,11 @@ export function Sidebar({ activeAgentId }: { activeAgentId?: string | undefined 
                 )}
               </Link>
             ))}
-          {isAdmin && agents.length === 0 && (
+          {showConfiguration && agents.length === 0 && (
             <p className="px-3 py-4 text-xs text-gray-400">Нет агентов. Создайте первого!</p>
           )}
         </nav>
 
-        {/* Logout */}
         <div className="border-t border-gray-200 p-3">
           <button
             onClick={handleLogout}

@@ -32,6 +32,17 @@ function timeToMinutes(time: string): number {
   return (h ?? 0) * 60 + (m ?? 0);
 }
 
+function formatWorkingHoursSummary(hours: SpecialistWorkingHours[] | undefined): string {
+  if (!hours || hours.length === 0) return 'Рабочие часы не настроены';
+
+  return hours
+    .map((entry) => {
+      const day = DAY_NAMES[entry.dayOfWeek] ?? 'День';
+      return `${day} ${minutesToTime(entry.fromMinutes)}-${minutesToTime(entry.toMinutes)}`;
+    })
+    .join(', ');
+}
+
 interface WorkingHoursEditorProps {
   specialistId: string;
   initialHours: SpecialistWorkingHours[];
@@ -255,6 +266,9 @@ function SpecialistCard({
               Услуг: {specialist._count.services} · Записей: {specialist._count.appointments}
             </p>
           )}
+          <p className="mt-2 text-xs text-gray-500">
+            {formatWorkingHoursSummary(specialist.workingHours)}
+          </p>
         </div>
         <div className="flex gap-1">
           <button
@@ -401,6 +415,14 @@ export function SpecialistsPage() {
                 onCancel={() => setEditingId(null)}
                 loading={updateMutation.isPending}
               />
+              <div className="mt-6 border-t border-indigo-100 pt-5">
+                <WorkingHoursEditor
+                  specialistId={s.id}
+                  initialHours={s.workingHours ?? []}
+                  onSaved={() => undefined}
+                  onCancel={() => setEditingId(null)}
+                />
+              </div>
             </div>
           ) : (
             <SpecialistCard

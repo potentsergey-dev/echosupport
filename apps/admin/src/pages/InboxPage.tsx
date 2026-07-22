@@ -226,14 +226,14 @@ function ChatPanel({ sessionId }: { sessionId: string }) {
         </div>
         <div className="flex items-center gap-2">
           <StatusBadge status={session.status} />
-          {session.status === 'WAITING_OPERATOR' && (
+          {(session.status === 'ACTIVE' || session.status === 'WAITING_OPERATOR') && (
             <button
               onClick={() => takeMutation.mutate()}
               disabled={takeMutation.isPending}
               className="flex items-center gap-1 rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
             >
               <UserCheckIcon className="h-3.5 w-3.5" />
-              Принять
+              {session.status === 'ACTIVE' ? 'Взять в работу' : 'Принять'}
             </button>
           )}
           {session.status === 'WITH_OPERATOR' && (
@@ -354,11 +354,13 @@ function ChatPanel({ sessionId }: { sessionId: string }) {
 
       {!canSend && (
         <div className="border-t border-gray-200 bg-gray-50 px-4 py-3 text-center text-xs text-gray-400">
-          {session.status === 'WAITING_OPERATOR'
-            ? 'Примите разговор, чтобы ответить посетителю или добавить внутреннюю заметку.'
-            : session.status === 'RESOLVED'
-              ? 'Сессия завершена'
-              : 'Только для чтения'}
+          {session.status === 'ACTIVE'
+            ? 'AI ведет разговор. Возьмите чат в работу, чтобы ответить посетителю вручную.'
+            : session.status === 'WAITING_OPERATOR'
+              ? 'Примите разговор, чтобы ответить посетителю или добавить внутреннюю заметку.'
+              : session.status === 'RESOLVED'
+                ? 'Сессия завершена'
+                : 'Только для чтения'}
         </div>
       )}
     </div>
@@ -370,7 +372,7 @@ function ChatPanel({ sessionId }: { sessionId: string }) {
 export function InboxPage() {
   const qc = useQueryClient();
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string>('WAITING_OPERATOR,WITH_OPERATOR');
+  const [statusFilter, setStatusFilter] = useState<string>('ACTIVE,WAITING_OPERATOR,WITH_OPERATOR');
   const wsRef = useRef<WebSocket | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -455,11 +457,12 @@ export function InboxPage() {
   }, [connectWs]);
 
   const FILTER_OPTIONS = [
+    { label: 'Все открытые', value: 'ACTIVE,WAITING_OPERATOR,WITH_OPERATOR' },
+    { label: 'AI-диалоги', value: 'ACTIVE' },
     { label: 'Ожидают / С оператором', value: 'WAITING_OPERATOR,WITH_OPERATOR' },
     { label: 'Ожидают ответа', value: 'WAITING_OPERATOR' },
     { label: 'С оператором', value: 'WITH_OPERATOR' },
     { label: 'Решены', value: 'RESOLVED' },
-    { label: 'Все активные', value: 'ACTIVE,WAITING_OPERATOR,WITH_OPERATOR' },
   ];
 
   return (

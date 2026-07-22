@@ -1,4 +1,5 @@
 import { isTyping, quickReplies } from '../signals';
+import { t } from '../i18n';
 
 export function QuickReplies({ onSelect }: { onSelect: (text: string) => void }) {
   if (quickReplies.value.length === 0) return null;
@@ -6,7 +7,7 @@ export function QuickReplies({ onSelect }: { onSelect: (text: string) => void })
   return (
     <div
       class="flex gap-2 overflow-x-auto border-t border-gray-200 bg-white px-3 py-2"
-      aria-label="Варианты ответа"
+      aria-label={t('quickRepliesLabel')}
     >
       {quickReplies.value.map((reply) => (
         <button

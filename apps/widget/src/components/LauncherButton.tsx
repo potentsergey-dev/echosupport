@@ -1,4 +1,5 @@
 import { agentInfo } from '../signals';
+import { t } from '../i18n';
 
 export function LauncherButton({ onClick }: { onClick: () => void }) {
   const agent = agentInfo.value;
@@ -6,7 +7,7 @@ export function LauncherButton({ onClick }: { onClick: () => void }) {
   return (
     <button
       onClick={onClick}
-      title={agent ? `Chat with ${agent.name}` : 'Open chat'}
+      title={agent ? t('launcherOpenChatWith', { name: agent.name }) : t('launcherOpenChat')}
       class="fixed bottom-24 right-6 z-[9999] flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 shadow-lg transition-transform hover:scale-105 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
     >
       {agent?.avatarUrl ? (

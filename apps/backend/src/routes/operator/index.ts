@@ -27,11 +27,16 @@ import { chatCompletion } from '../../adapters/llm/openrouter.js';
 import { env } from '../../config/env.js';
 import { isSlotWithinWorkingHours } from '../../services/slot-finder.js';
 import { buildSuggestedReplyTranscript } from '../../services/suggested-reply.js';
-import { APPOINTMENT_STATUSES, getBookableServiceForSpecialist } from '../../services/booking.js';
+import {
+  APPOINTMENT_STATUSES,
+  assertSlotCanAcceptAppointment,
+  getBookableServiceForSpecialist,
+} from '../../services/booking.js';
 import { summarizeError } from '../../services/error-sanitizer.js';
 
 const OPERATOR_ROLES = ['OWNER', 'ADMIN', 'OPERATOR'];
 const CLOSED_SESSION_STATUSES = new Set(['RESOLVED', 'CLOSED']);
+const OPEN_SESSION_STATUSES = ['ACTIVE', 'WAITING_OPERATOR', 'WITH_OPERATOR'] as const;
 
 const operatorRoutes: FastifyPluginAsync = async (fastify) => {
   // Shared preHandler: require operator role
@@ -50,18 +55,23 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
     if (agentId) where['agentId'] = agentId;
 
     if (statusFilter === 'ALL_OPEN') {
-      where['status'] = { in: ['ACTIVE', 'WAITING_OPERATOR', 'WITH_OPERATOR'] };
+      where['status'] = { in: OPEN_SESSION_STATUSES };
     } else if (statusFilter) {
       where['status'] = statusFilter;
     } else {
       // Default: show active + waiting + with_operator
-      where['status'] = { in: ['ACTIVE', 'WAITING_OPERATOR', 'WITH_OPERATOR'] };
+      where['status'] = { in: OPEN_SESSION_STATUSES };
     }
 
+    const baseWhere = where as NonNullable<
+      NonNullable<Parameters<typeof prisma.session.findMany>[0]>['where']
+    >;
+    const visibleWhere = {
+      AND: [baseWhere, { messages: { some: {} } }],
+    } satisfies NonNullable<Parameters<typeof prisma.session.findMany>[0]>['where'];
+
     const sessions = await prisma.session.findMany({
-      where: where as NonNullable<
-        NonNullable<Parameters<typeof prisma.session.findMany>[0]>['where']
-      >,
+      where: visibleWhere,
       orderBy: { lastActiveAt: 'desc' },
       take: 100,
       select: {
@@ -142,11 +152,20 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
 
     const session = await prisma.session.findFirst({
       where: { id, agent: { tenantId: req.user.tenantId } },
-      select: { id: true, agentId: true, status: true, agent: { select: { tenantId: true } } },
+      select: {
+        id: true,
+        agentId: true,
+        status: true,
+        agent: { select: { tenantId: true } },
+        _count: { select: { messages: true } },
+      },
     });
     if (!session) return reply.status(404).send({ error: 'Session not found' });
     if (CLOSED_SESSION_STATUSES.has(session.status)) {
       return reply.status(409).send({ error: 'Cannot take a closed session' });
+    }
+    if (session._count.messages === 0) {
+      return reply.status(409).send({ error: 'Cannot take an empty session' });
     }
 
     const updated = await prisma.session.update({
@@ -186,7 +205,12 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
 
     const session = await prisma.session.findFirst({
       where: { id, agent: { tenantId: req.user.tenantId } },
-      select: { id: true, agentId: true, status: true, agent: { select: { tenantId: true } } },
+      select: {
+        id: true,
+        agentId: true,
+        status: true,
+        agent: { select: { tenantId: true } },
+      },
     });
     if (!session) return reply.status(404).send({ error: 'Session not found' });
     if (session.status !== 'WITH_OPERATOR') {
@@ -690,15 +714,15 @@ Only output the reply text — no meta-commentary.`;
     // Slot conflict check + create in transaction
     const appointment = await prisma
       .$transaction(async (tx) => {
-        const conflict = await tx.appointment.findFirst({
-          where: {
-            specialistId,
-            status: { notIn: ['CANCELLED'] },
-            startsAt: { lt: endsAt },
-            endsAt: { gt: startsAt },
-          },
+        await assertSlotCanAcceptAppointment({
+          specialistId,
+          serviceId: bookableService.id,
+          startsAt,
+          endsAt,
+          isGroup: bookableService.isGroup,
+          capacity: bookableService.capacity,
+          db: tx,
         });
-        if (conflict) throw new Error('SLOT_TAKEN');
 
         return tx.appointment.create({
           data: {
@@ -723,14 +747,17 @@ Only output the reply text — no meta-commentary.`;
         });
       })
       .catch((err: Error) => {
-        if (err.message === 'SLOT_TAKEN') return null;
+        if (err.message === 'SLOT_TAKEN' || err.message === 'SLOT_FULL') return err.message;
         throw err;
       });
 
-    if (!appointment) {
-      return reply
-        .status(409)
-        .send({ error: 'Time slot is already booked. Please choose another.' });
+    if (appointment === 'SLOT_TAKEN' || appointment === 'SLOT_FULL') {
+      return reply.status(409).send({
+        error:
+          appointment === 'SLOT_FULL'
+            ? 'This group session is already full. Please choose another time.'
+            : 'Time slot is already booked. Please choose another.',
+      });
     }
 
     return reply.status(201).send(appointment);
@@ -792,7 +819,9 @@ Only output the reply text — no meta-commentary.`;
 
       const appt = await prisma.appointment.findFirst({
         where: { id, tenantId: req.user.tenantId },
-        include: { service: { select: { durationMin: true } } },
+        include: {
+          service: { select: { id: true, durationMin: true, isGroup: true, capacity: true } },
+        },
       });
       if (!appt) return reply.status(404).send({ error: 'Appointment not found' });
 
@@ -810,20 +839,27 @@ Only output the reply text — no meta-commentary.`;
           .send({ error: "The requested time is outside the specialist's working hours." });
       }
 
-      // Slot conflict check (exclude this appointment)
-      const conflict = await prisma.appointment.findFirst({
-        where: {
+      try {
+        await assertSlotCanAcceptAppointment({
           specialistId: appt.specialistId,
-          status: { notIn: ['CANCELLED'] },
-          id: { not: id },
-          startsAt: { lt: endsAt },
-          endsAt: { gt: startsAt },
-        },
-      });
-      if (conflict)
-        return reply
-          .status(409)
-          .send({ error: 'New time slot conflicts with existing appointment' });
+          serviceId: appt.service?.id ?? null,
+          startsAt,
+          endsAt,
+          isGroup: appt.service?.isGroup ?? false,
+          capacity: appt.service?.capacity ?? 1,
+          excludeAppointmentId: id,
+        });
+      } catch (err) {
+        if (err instanceof Error && (err.message === 'SLOT_TAKEN' || err.message === 'SLOT_FULL')) {
+          return reply.status(409).send({
+            error:
+              err.message === 'SLOT_FULL'
+                ? 'This group session is already full. Please choose another time.'
+                : 'New time slot conflicts with existing appointment',
+          });
+        }
+        throw err;
+      }
 
       const updated = await prisma.appointment.update({
         where: { id },

@@ -51,6 +51,7 @@ export function buildMessages(opts: BuildMessagesOptions): ChatMessage[] {
     chunks.length > 0
       ? 'Base your answers on the provided Knowledge Base Excerpts when relevant.'
       : '',
+    'Use request_handoff only when the user explicitly asks for a human/operator, or when you truly cannot help with the available information. Do not request handoff merely because the conversation mentions an operator, agent, specialist, support, or human support as a product feature.',
     businessHoursContext ? `\n\n## Business Hours\n\n${businessHoursContext}` : '',
   ]
     .filter(Boolean)

@@ -76,10 +76,18 @@ for the deployed widget must be added on the agent Profile tab as exact origins 
 > characters in `POSTGRES_PASSWORD`, or provide an encoded connection URL when adapting
 > the deployment.
 
+## Lite Edition
+
+Set `APP_EDITION=lite` before building when you want a simpler knowledge-base assistant UI for documents, OpenRouter keys, and widget embed setup without operator inbox or booking pages. See [Lite Installation](docs/lite-installation.md).
+
 ## Documentation
 
 - [Getting started](docs/getting-started.md)
 - [Configuration reference](docs/configuration.md)
+- [Lite Installation](docs/lite-installation.md)
+- [Release Checklist](docs/release-checklist.md)
+- [Demo to Main Release Transfer](docs/demo-to-main-release.md)
+- [Local Models and OpenAI-Compatible Endpoints](docs/local-models.md)
 - [Create an agent and embed the widget](docs/agent-setup.md)
 - [Upgrade and backup](docs/upgrade.md)
 - [Install readiness matrix](docs/testing/install-readiness-matrix.md)

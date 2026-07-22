@@ -2,6 +2,7 @@
 
 interface ImportMetaEnv {
   readonly VITE_API_URL: string;
+  readonly VITE_APP_EDITION?: 'pro' | 'lite';
 }
 
 interface ImportMeta {

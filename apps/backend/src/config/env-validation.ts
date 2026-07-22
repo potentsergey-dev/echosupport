@@ -35,6 +35,8 @@ export const envSchema = z
     OPENROUTER_EMBEDDING_API_KEY: z.string().default(''),
     // Phase 5 — STT
     DEEPGRAM_API_KEY: z.string().default(''),
+    // Demo deployment - opt-in marketing copy for the seeded demo agent.
+    ECHOSUPPORT_DEMO_MARKETING_SEED: z.enum(['true', 'false']).default('false'),
     // Deployment — cron trigger secret (used by Passenger / external scheduler)
     CRON_SECRET: z.string().min(32).optional(),
   })

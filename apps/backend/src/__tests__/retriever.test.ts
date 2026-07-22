@@ -98,6 +98,12 @@ describe('retriever — content extraction from Qdrant payload', () => {
     expect(results[0]!.sourceType).toBe('FILE');
     expect(results[1]!.sourceType).toBe('URL');
   });
+  it('returns no context when vector search is unavailable', async () => {
+    vi.mocked(searchPoints).mockRejectedValueOnce(new Error('Not Found'));
+
+    const results = await retrieve('agent-1', 'query');
+    expect(results).toEqual([]);
+  });
 
   it('uses FILES_FIRST filter with uppercase FILE value', async () => {
     vi.mocked(searchPoints).mockClear(); // start fresh — no calls from previous tests

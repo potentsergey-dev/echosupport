@@ -11,7 +11,17 @@ import { SpecialistsPage } from './pages/SpecialistsPage';
 import { ServicesPage } from './pages/ServicesPage';
 import { AppointmentsPage } from './pages/AppointmentsPage';
 import { CsatPage } from './pages/CsatPage';
+import { isLiteEdition } from './lib/app-edition';
+import { isAdminRole } from './lib/auth';
+import { useWorkingMode } from './lib/working-mode';
 
+function ConfigurationRoute({ children }: { children: React.ReactNode }) {
+  const [workingMode] = useWorkingMode();
+  if (!isLiteEdition && isAdminRole() && workingMode) {
+    return <Navigate to="/inbox" replace />;
+  }
+  return <>{children}</>;
+}
 export function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -22,7 +32,9 @@ export function App() {
             path="/agents"
             element={
               <ProtectedRoute>
-                <AgentsIndexPage />
+                <ConfigurationRoute>
+                  <AgentsIndexPage />
+                </ConfigurationRoute>
               </ProtectedRoute>
             }
           />
@@ -30,60 +42,70 @@ export function App() {
             path="/agents/:id"
             element={
               <ProtectedRoute>
-                <AgentSettingsPage />
+                <ConfigurationRoute>
+                  <AgentSettingsPage />
+                </ConfigurationRoute>
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/inbox"
-            element={
-              <ProtectedRoute>
-                <Layout>
-                  <InboxPage />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/specialists"
-            element={
-              <ProtectedRoute>
-                <Layout>
-                  <SpecialistsPage />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/services"
-            element={
-              <ProtectedRoute>
-                <Layout>
-                  <ServicesPage />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/appointments"
-            element={
-              <ProtectedRoute>
-                <Layout>
-                  <AppointmentsPage />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/csat"
-            element={
-              <ProtectedRoute>
-                <Layout>
-                  <CsatPage />
-                </Layout>
-              </ProtectedRoute>
-            }
-          />
+          {!isLiteEdition && (
+            <>
+              <Route
+                path="/inbox"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <InboxPage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/specialists"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <ConfigurationRoute>
+                        <SpecialistsPage />
+                      </ConfigurationRoute>
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/services"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <ConfigurationRoute>
+                        <ServicesPage />
+                      </ConfigurationRoute>
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/appointments"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <AppointmentsPage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+              <Route
+                path="/csat"
+                element={
+                  <ProtectedRoute>
+                    <Layout>
+                      <CsatPage />
+                    </Layout>
+                  </ProtectedRoute>
+                }
+              />
+            </>
+          )}
           <Route path="*" element={<Navigate to="/agents" replace />} />
         </Routes>
       </BrowserRouter>

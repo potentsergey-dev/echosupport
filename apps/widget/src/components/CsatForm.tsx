@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks';
 import { submitCsat } from '../api';
 import { csatDone } from '../signals';
+import { t } from '../i18n';
 
 export function CsatForm() {
   const [rating, setRating] = useState<1 | -1 | null>(null);
@@ -16,20 +17,20 @@ export function CsatForm() {
       await submitCsat(rating, comment);
       csatDone.value = true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Не удалось отправить оценку');
+      setError(err instanceof Error ? err.message : t('csatError'));
     } finally {
       setIsSubmitting(false);
     }
   }
 
   const options = [
-    { value: 1 as const, icon: '👍', label: 'Хорошо' },
-    { value: -1 as const, icon: '👎', label: 'Плохо' },
+    { value: 1 as const, icon: '👍', label: t('csatGood') },
+    { value: -1 as const, icon: '👎', label: t('csatBad') },
   ];
 
   return (
     <div class="flex flex-col gap-3 border-t border-gray-200 bg-gray-50 px-4 py-4">
-      <p class="text-center text-sm font-medium text-gray-700">Оцените качество поддержки</p>
+      <p class="text-center text-sm font-medium text-gray-700">{t('csatTitle')}</p>
       <div class="flex justify-center gap-4">
         {options.map((option) => (
           <button
@@ -57,7 +58,7 @@ export function CsatForm() {
             maxLength={2000}
             rows={2}
             disabled={isSubmitting}
-            placeholder="Комментарий (необязательно)"
+            placeholder={t('csatCommentPlaceholder')}
             class="w-full resize-none rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
           />
           {error && (
@@ -71,7 +72,7 @@ export function CsatForm() {
             disabled={isSubmitting}
             class="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-60"
           >
-            {isSubmitting ? 'Отправка…' : 'Отправить оценку'}
+            {isSubmitting ? t('csatSending') : t('csatSubmit')}
           </button>
         </>
       )}
