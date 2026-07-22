@@ -107,6 +107,7 @@ jobs:
         uses: actions/setup-node@v5
         with:
           node-version: '22'
+          package-manager-cache: false
 
       - name: Build and start the stack
         run: docker compose up --build --detach --wait --wait-timeout 180
