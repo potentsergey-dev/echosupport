@@ -49,6 +49,50 @@ async function main() {
 
   console.log(`✅ User: ${user.email}`);
 
+  const initialOperatorEmail = process.env['INITIAL_OPERATOR_EMAIL']?.trim();
+  const initialOperatorPassword = process.env['INITIAL_OPERATOR_PASSWORD'];
+  if (
+    (initialOperatorEmail && !initialOperatorPassword) ||
+    (!initialOperatorEmail && initialOperatorPassword)
+  ) {
+    throw new Error('INITIAL_OPERATOR_EMAIL and INITIAL_OPERATOR_PASSWORD must be set together');
+  }
+  if (initialOperatorEmail && initialOperatorPassword) {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(initialOperatorEmail)) {
+      throw new Error('INITIAL_OPERATOR_EMAIL must be a valid email address');
+    }
+    if (initialOperatorPassword.length < 12) {
+      throw new Error('INITIAL_OPERATOR_PASSWORD must contain at least 12 characters');
+    }
+    if (initialOperatorPassword === 'replace-with-a-long-unique-operator-password') {
+      throw new Error('INITIAL_OPERATOR_PASSWORD must be replaced with a unique value');
+    }
+    const existingOperator = await prisma.user.findUnique({
+      where: { email: initialOperatorEmail },
+    });
+    if (
+      existingOperator &&
+      (existingOperator.tenantId !== tenant.id || existingOperator.role !== 'OPERATOR')
+    ) {
+      throw new Error('INITIAL_OPERATOR_EMAIL is already assigned to a different tenant or role');
+    }
+    const operatorPasswordHash = await hash(initialOperatorPassword, 12);
+    const operator = existingOperator
+      ? await prisma.user.update({
+          where: { id: existingOperator.id },
+          data: { passwordHash: operatorPasswordHash },
+        })
+      : await prisma.user.create({
+          data: {
+            tenantId: tenant.id,
+            email: initialOperatorEmail,
+            passwordHash: operatorPasswordHash,
+            role: 'OPERATOR',
+          },
+        });
+    console.log(`✅ Initial operator: ${operator.email}`);
+  }
+
   const baseAgentData = {
     tenantId: tenant.id,
     name: 'Demo Agent',

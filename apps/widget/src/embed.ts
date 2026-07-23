@@ -11,6 +11,7 @@
   const apiBase =
     (currentScript as HTMLScriptElement).getAttribute('data-api-base') ??
     new URL((currentScript as HTMLScriptElement).src).origin;
+  const language = (currentScript as HTMLScriptElement).getAttribute('data-language');
 
   if (!agentKey) {
     console.warn('[EchoSupport] data-agent-key attribute is missing on embed script');
@@ -22,6 +23,7 @@
     const el = document.createElement('echo-support-widget');
     el.setAttribute('agent-key', agentKey);
     el.setAttribute('api-base', apiBase);
+    if (language === 'ru' || language === 'en') el.setAttribute('language', language);
     document.body.appendChild(el);
   }
 

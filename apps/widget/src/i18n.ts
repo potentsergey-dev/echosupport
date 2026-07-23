@@ -1,4 +1,4 @@
-import { agentInfo } from './signals';
+import { agentInfo, languageOverride } from './signals';
 
 export type WidgetLanguage = 'ru' | 'en';
 
@@ -122,6 +122,8 @@ function normalizeLanguage(value: string | null | undefined): WidgetLanguage | n
 }
 
 export function getWidgetLanguage(): WidgetLanguage {
+  if (languageOverride.value) return languageOverride.value;
+
   const agentLanguage = normalizeLanguage(agentInfo.value?.language);
   if (agentLanguage) return agentLanguage;
 
