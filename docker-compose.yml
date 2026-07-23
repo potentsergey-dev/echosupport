@@ -53,6 +53,8 @@ services:
       CRON_SECRET: ${CRON_SECRET:?Set CRON_SECRET in .env}
       ADMIN_EMAIL: ${ADMIN_EMAIL:?Set ADMIN_EMAIL in .env}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      INITIAL_OPERATOR_EMAIL: ${INITIAL_OPERATOR_EMAIL:-}
+      INITIAL_OPERATOR_PASSWORD: ${INITIAL_OPERATOR_PASSWORD:-}
     volumes:
       - uploads_data:/app/apps/backend/uploads
     depends_on:

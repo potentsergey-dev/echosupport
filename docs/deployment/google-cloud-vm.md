@@ -130,6 +130,14 @@ http://EXTERNAL_IP/admin
 Sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD`. Open the seeded agent, confirm the
 allowed origin matches `PUBLIC_BASE_URL`, and copy the public agent key only in private.
 
+When `INITIAL_OPERATOR_EMAIL` and `INITIAL_OPERATOR_PASSWORD` are set, the seed also creates
+or rotates a restricted `OPERATOR` account. Rotation is allowed only when the existing user
+already belongs to the demo tenant and has the `OPERATOR` role; conflicting emails stop the
+seed. The account can work with Inbox, appointments, and CSAT, but admin API authorization
+prevents it from changing agents, provider keys, knowledge sources, specialists, services,
+or working hours. Prefer this account for temporary demo access and never share the owner
+credentials.
+
 ## 8. Test the public demo page
 
 The Docker image includes a customer-facing demo page at the site root:
