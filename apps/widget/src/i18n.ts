@@ -45,7 +45,8 @@ const translations = {
     startNewChat: 'Start new chat',
     startingNewChat: 'Starting...',
     startNewChatFailed: 'Failed to start a new chat',
-    chatClosedAfterRating: 'This chat is closed. You can start a new one.',
+    chatClosed: 'This conversation is closed.',
+    chatClosedNextStep: 'Rate the answer if you wish, or start a new chat.',
     errorOriginNotAllowed:
       'This website is not allowed to use the chat widget. Add the site origin in the agent profile.',
     errorMissingAgentKey: 'The widget is missing an agent key. Check the embed code.',
@@ -98,7 +99,8 @@ const translations = {
     startNewChat: 'Начать новый чат',
     startingNewChat: 'Начинаем...',
     startNewChatFailed: 'Не удалось начать новый чат',
-    chatClosedAfterRating: 'Этот чат завершен. Вы можете начать новый.',
+    chatClosed: 'Этот диалог завершён.',
+    chatClosedNextStep: 'При желании оцените ответ или начните новый чат.',
     errorOriginNotAllowed:
       'Этот сайт не разрешен для виджета. Добавьте origin сайта в профиле агента.',
     errorMissingAgentKey: 'В embed-коде виджета не найден ключ агента. Проверьте код установки.',

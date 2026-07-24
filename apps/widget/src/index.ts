@@ -1,10 +1,19 @@
 import { render, h } from 'preact';
 import { Widget } from './widget';
-import { languageOverride } from './signals';
+import { startNewSession } from './api';
+import { inputText, isOpen, languageOverride, sessionStatus } from './signals';
 import cssText from './globals.css?inline';
 
 class EchoSupportWidgetElement extends HTMLElement {
   private _container: HTMLDivElement | null = null;
+
+  async openChat(message = ''): Promise<void> {
+    if (sessionStatus.value === 'CLOSED' || sessionStatus.value === 'RESOLVED') {
+      await startNewSession();
+    }
+    if (message.trim()) inputText.value = message.trim();
+    isOpen.value = true;
+  }
 
   static get observedAttributes() {
     return ['language'];

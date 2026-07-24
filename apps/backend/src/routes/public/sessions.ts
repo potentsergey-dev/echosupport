@@ -18,6 +18,7 @@ import { csatSubmissionSchema } from '../../services/csat.js';
 import { summarizeError } from '../../services/error-sanitizer.js';
 import { isOriginAllowed } from '../../services/origin-policy.js';
 import { isExplicitHandoffRequest } from '../../services/handoff-intent.js';
+import { publishToOperators } from '../../services/realtime-hub.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -317,14 +318,32 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Save user message
-      await prisma.message.create({
+      const visitorMessage = await prisma.message.create({
         data: { sessionId, role: 'USER', content: text, authorType: 'VISITOR' },
       });
 
-      // Increment unread count for operator
+      // Keep the operator inbox in sync for every visitor message. Browser
+      // notifications remain reserved for explicit handoff requests.
       await prisma.session.update({
         where: { id: sessionId },
-        data: { unreadByOperator: { increment: 1 } },
+        data: {
+          unreadByOperator: { increment: 1 },
+          lastActiveAt: new Date(),
+        },
+      });
+      publishToOperators(session.agent.tenantId, {
+        type: 'session:message',
+        tenantId: session.agent.tenantId,
+        sessionId,
+        message: {
+          id: visitorMessage.id,
+          sessionId,
+          content: visitorMessage.content,
+          authorType: visitorMessage.authorType,
+          authorId: visitorMessage.authorId,
+          isInternal: visitorMessage.isInternal,
+          createdAt: visitorMessage.createdAt,
+        },
       });
 
       // Hijack connection for SSE
