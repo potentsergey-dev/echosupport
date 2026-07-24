@@ -30,7 +30,7 @@ import { startOperatorNotifier, stopOperatorNotifier } from './services/operator
 import { prisma } from './db/prisma.js';
 import { isAdminOriginAllowed } from './services/origin-policy.js';
 import { checkQdrantConnection } from './adapters/vectorstore/qdrant.js';
-import { summarizeError } from './services/error-sanitizer.js';
+import { redactSecrets, summarizeError } from './services/error-sanitizer.js';
 
 export async function buildServer() {
   const app = Fastify({
@@ -48,6 +48,19 @@ export async function buildServer() {
           'request.headers["x-cron-secret"]',
         ],
         censor: '[redacted]',
+      },
+      serializers: {
+        req(request) {
+          return {
+            method: request.method,
+            url: redactSecrets(request.url),
+            host: request.host,
+            remoteAddress: request.ip,
+            ...(request.socket.remotePort !== undefined
+              ? { remotePort: request.socket.remotePort }
+              : {}),
+          };
+        },
       },
       ...(env.NODE_ENV !== 'production' && {
         transport: {

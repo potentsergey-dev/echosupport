@@ -27,6 +27,12 @@ describe('error sanitizer', () => {
     expect(summary).toEqual({ name: 'TypeError', message: 'Qdrant request failed' });
   });
 
+  it('redacts WebSocket query tokens while preserving the request path', () => {
+    expect(
+      redactSecrets('/api/v1/ws/operator?token=header.payload.signature&transport=websocket'),
+    ).toBe('/api/v1/ws/operator?token=[redacted]&transport=websocket');
+  });
+
   it('redacts public agent keys and long opaque tokens', () => {
     const redacted = redactSecrets(
       'agent pk_123456789abcdef token abcdef1234567890abcdef1234567890abcdef1234567890',
