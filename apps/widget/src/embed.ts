@@ -7,11 +7,12 @@
 
   if (!currentScript) return;
 
-  const agentKey = (currentScript as HTMLScriptElement).getAttribute('data-agent-key') ?? '';
-  const apiBase =
-    (currentScript as HTMLScriptElement).getAttribute('data-api-base') ??
-    new URL((currentScript as HTMLScriptElement).src).origin;
-  const language = (currentScript as HTMLScriptElement).getAttribute('data-language');
+  const embedScript = currentScript as HTMLScriptElement;
+  const embedUrl = new URL(embedScript.src);
+  const assetVersion = embedUrl.searchParams.get('v');
+  const agentKey = embedScript.getAttribute('data-agent-key') ?? '';
+  const apiBase = embedScript.getAttribute('data-api-base') ?? embedUrl.origin;
+  const language = embedScript.getAttribute('data-language');
 
   if (!agentKey) {
     console.warn('[EchoSupport] data-agent-key attribute is missing on embed script');
@@ -34,7 +35,9 @@
       return;
     }
 
-    const scriptSrc = apiBase.replace(/\/$/, '') + '/widget.js';
+    const scriptUrl = new URL(apiBase.replace(/\/$/, '') + '/widget.js');
+    if (assetVersion) scriptUrl.searchParams.set('v', assetVersion);
+    const scriptSrc = scriptUrl.toString();
     const s = document.createElement('script');
     s.src = scriptSrc;
     s.defer = true;

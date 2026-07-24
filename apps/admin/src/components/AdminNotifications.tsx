@@ -19,6 +19,7 @@ interface SessionNewEvent {
 }
 
 interface VisibleNotification {
+  sessionId: string;
   visitor: string;
   pageUrl: string | null;
 }
@@ -128,7 +129,7 @@ export function AdminNotifications({
       try {
         const systemNotification = new Notification('Новый запрос оператора', {
           body: `${notification.visitor} просит подключить оператора.`,
-          tag: 'echosupport-handoff',
+          tag: `echosupport-handoff-${notification.sessionId}`,
           requireInteraction: true,
         });
         systemNotification.onclick = () => {
@@ -198,7 +199,11 @@ export function AdminNotifications({
   const notifyHandoff = useCallback(
     (event: SessionNewEvent) => {
       const visitor = event.session?.visitorName?.trim() || 'Посетитель';
-      const notification = { visitor, pageUrl: event.session?.pageUrl ?? null };
+      const notification = {
+        sessionId: event.session?.id ?? `unknown-${Date.now()}`,
+        visitor,
+        pageUrl: event.session?.pageUrl ?? null,
+      };
       setVisibleNotification(notification);
       showSystemNotification(notification);
       addToast(`${visitor} просит подключить оператора`, 'info');

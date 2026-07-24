@@ -110,6 +110,7 @@ async function main() {
     proactiveMessageDelay: 8,
     proactiveMessageText: 'Want to see how EchoSupport answers before a human joins?',
     allowedOrigins: getMarketingAllowedOrigins(),
+    maxSessionsPerDayPerVisitor: 50,
   };
   const optInAgentData = demoMarketingSeedEnabled ? marketingAgentData : {};
 
