@@ -33,6 +33,7 @@ COPY --from=builder /app/apps/admin/dist ./apps/admin/dist
 COPY docker/backend-entrypoint.sh /usr/local/bin/echosupport-entrypoint
 
 RUN chmod +x /usr/local/bin/echosupport-entrypoint \
+  && chmod -R a+rX /app/apps/backend/public \
   && mkdir -p /app/apps/backend/uploads \
   && chown -R node:node /app/apps/backend/uploads
 
