@@ -7,6 +7,7 @@ import {
   handoffPending,
   csatDone,
   quickReplies,
+  sessionStartError,
 } from '../signals';
 import { MessageList } from './MessageList';
 import { TypingIndicator } from './TypingIndicator';
@@ -26,7 +27,6 @@ export function ChatWindow({ fullscreen = false, onClose }: ChatWindowProps) {
   const [isClosing, setIsClosing] = useState(false);
   const [closeError, setCloseError] = useState('');
   const [isStartingNew, setIsStartingNew] = useState(false);
-  const [startNewError, setStartNewError] = useState('');
   const agent = agentInfo.value;
   const status = sessionStatus.value;
   const isResolved = status === 'RESOLVED' || status === 'CLOSED';
@@ -53,11 +53,11 @@ export function ChatWindow({ fullscreen = false, onClose }: ChatWindowProps) {
   async function handleStartNewChat() {
     if (isStartingNew) return;
     setIsStartingNew(true);
-    setStartNewError('');
+    sessionStartError.value = '';
     try {
       await startNewSession();
     } catch (err) {
-      setStartNewError(err instanceof Error ? err.message : t('startNewChatFailed'));
+      sessionStartError.value = err instanceof Error ? err.message : t('startNewChatFailed');
     } finally {
       setIsStartingNew(false);
     }
@@ -186,13 +186,20 @@ export function ChatWindow({ fullscreen = false, onClose }: ChatWindowProps) {
           >
             {isStartingNew ? t('startingNewChat') : t('startNewChat')}
           </button>
-          {startNewError && <p class="mt-1 text-xs text-red-600">{startNewError}</p>}
+          {sessionStartError.value && (
+            <p class="mt-1 text-xs text-red-600">{sessionStartError.value}</p>
+          )}
         </div>
       )}
 
       {/* Input */}
       {!isResolved && quickReplies.value.length > 0 && (
         <QuickReplies onSelect={(text) => void sendMessage(text)} />
+      )}
+      {!isResolved && sessionStartError.value && (
+        <p class="border-t border-red-100 bg-red-50 px-4 py-2 text-xs text-red-700">
+          {sessionStartError.value}
+        </p>
       )}
       {!isResolved && <MessageInput onSend={(text) => void sendMessage(text)} />}
       <div class="border-t border-gray-100 bg-white px-4 py-2 text-center text-[11px] leading-none text-gray-400">

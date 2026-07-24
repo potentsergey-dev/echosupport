@@ -10,6 +10,7 @@ import {
   handoffPending,
   quickReplies,
   csatDone,
+  sessionStartError,
 } from './signals';
 import type {
   SseDeltaEvent,
@@ -142,15 +143,19 @@ export async function initSession(): Promise<void> {
   operatorTyping.value = false;
   quickReplies.value = [];
   csatDone.value = false;
-
-  if (data.agent.greetingMessage) {
-    messages.value = [{ id: 'greeting', role: 'assistant', text: data.agent.greetingMessage }];
-  }
+  isTyping.value = false;
+  messages.value = data.agent.greetingMessage
+    ? [{ id: 'greeting', role: 'assistant', text: data.agent.greetingMessage }]
+    : [];
 }
 
 export async function sendMessage(text: string): Promise<void> {
   const sid = sessionId.value;
-  if (!sid || isTyping.value) return;
+  if (!sid) {
+    sessionStartError.value = t('noActiveSession');
+    return;
+  }
+  if (isTyping.value) return;
   quickReplies.value = [];
   const expectsAssistant = sessionStatus.value === 'ACTIVE';
 
@@ -344,9 +349,13 @@ export function connectVisitorWs(): void {
   };
 
   ws.onclose = () => {
-    visitorWs = null;
+    if (visitorWs === ws) visitorWs = null;
     // Reconnect if session still active
-    if (sessionId.value && sessionStatus.value !== 'CLOSED' && sessionStatus.value !== 'RESOLVED') {
+    if (
+      sessionId.value === sid &&
+      sessionStatus.value !== 'CLOSED' &&
+      sessionStatus.value !== 'RESOLVED'
+    ) {
       wsReconnectTimer = setTimeout(connectVisitorWs, 5000);
     }
   };
@@ -382,17 +391,36 @@ export async function closeSession(): Promise<void> {
 }
 
 export async function startNewSession(): Promise<void> {
-  disconnectVisitorWs();
-  sessionId.value = null;
-  messages.value = [];
-  quickReplies.value = [];
-  handoffPending.value = false;
-  operatorTyping.value = false;
-  isTyping.value = false;
-  csatDone.value = false;
-  sessionStatus.value = 'ACTIVE';
-  await initSession();
-  connectVisitorWs();
+  const previous = {
+    sessionId: sessionId.value,
+    agentInfo: agentInfo.value,
+    messages: messages.value,
+    quickReplies: quickReplies.value,
+    handoffPending: handoffPending.value,
+    operatorTyping: operatorTyping.value,
+    isTyping: isTyping.value,
+    csatDone: csatDone.value,
+    sessionStatus: sessionStatus.value,
+  };
+
+  sessionStartError.value = '';
+  try {
+    await initSession();
+    disconnectVisitorWs();
+    connectVisitorWs();
+  } catch (error) {
+    sessionId.value = previous.sessionId;
+    agentInfo.value = previous.agentInfo;
+    messages.value = previous.messages;
+    quickReplies.value = previous.quickReplies;
+    handoffPending.value = previous.handoffPending;
+    operatorTyping.value = previous.operatorTyping;
+    isTyping.value = previous.isTyping;
+    csatDone.value = previous.csatDone;
+    sessionStatus.value = previous.sessionStatus;
+    sessionStartError.value = error instanceof Error ? error.message : t('startNewChatFailed');
+    throw error;
+  }
 }
 export async function submitCsat(rating: 1 | -1, comment?: string): Promise<void> {
   const sid = sessionId.value;

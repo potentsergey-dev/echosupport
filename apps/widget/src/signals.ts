@@ -16,6 +16,7 @@ export const languageOverride = signal<'ru' | 'en' | null>(null);
 export const sessionStatus = signal<SessionStatus>('ACTIVE');
 export const operatorTyping = signal(false);
 export const handoffPending = signal(false);
+export const sessionStartError = signal('');
 
 // Phase 10.7 — CSAT
 export const csatDone = signal(false);

@@ -1,5 +1,5 @@
 import { useRef } from 'preact/hooks';
-import { inputText, isTyping } from '../signals';
+import { inputText, isTyping, sessionId, sessionStartError } from '../signals';
 import { MicButton } from './MicButton';
 import { t } from '../i18n';
 
@@ -9,6 +9,10 @@ export function MessageInput({ onSend }: { onSend: (text: string) => void }) {
   function handleSend() {
     const text = inputText.value.trim();
     if (!text || isTyping.value) return;
+    if (!sessionId.value) {
+      sessionStartError.value = t('noActiveSession');
+      return;
+    }
     inputText.value = '';
     if (textareaRef.current) {
       textareaRef.current.style.height = 'auto';
