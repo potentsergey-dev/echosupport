@@ -2,12 +2,13 @@
  * Operator notification outbox worker.
  * Runs every 10 seconds, picks PENDING notifications, delivers them.
  *
- * Phase 10.5: browser push via VAPID (web-push) + in-app via WebSocket hub.
+ * Phase 10.5: durable browser push via VAPID (web-push).
+ * In-app WebSocket events are published immediately by the command that creates
+ * the notification, so replaying them here would notify connected operators twice.
  * Email (Resend) and Telegram hooks can be wired in later.
  */
 
 import { prisma } from '../db/prisma.js';
-import { publishToOperators } from './realtime-hub.js';
 
 let interval: ReturnType<typeof setInterval> | null = null;
 
@@ -23,7 +24,7 @@ export function stopOperatorNotifier(): void {
   }
 }
 
-async function processNotifications(): Promise<void> {
+export async function processNotifications(): Promise<void> {
   // Pick up to 20 PENDING notifications older than 1 second
   const pending = await prisma.operatorNotification.findMany({
     where: {
@@ -36,18 +37,8 @@ async function processNotifications(): Promise<void> {
 
   for (const notif of pending) {
     try {
-      // In-app (WebSocket) delivery — always attempted
-      publishToOperators(notif.tenantId, {
-        type: 'session:new',
-        tenantId: notif.tenantId,
-        session: notif.payload as Record<string, unknown> as Parameters<
-          typeof publishToOperators
-        >[1] extends { session: infer S }
-          ? S
-          : never,
-      });
-
-      // Web Push delivery (if push subscriptions exist for the target user)
+      // Web Push delivery (if push subscriptions exist for the target user).
+      // The realtime event was already published at the point of creation.
       if (notif.channels.includes('browser')) {
         await deliverBrowserPush(notif);
       }
