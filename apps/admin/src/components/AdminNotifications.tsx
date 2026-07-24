@@ -8,6 +8,7 @@ import { isLiteEdition } from '../lib/app-edition';
 type BrowserNotificationStatus = 'unsupported' | 'insecure' | 'default' | 'granted' | 'denied';
 
 const BROWSER_NOTIFICATIONS_KEY = 'es_browser_notifications_enabled';
+const HANDOFF_DEDUP_WINDOW_MS = 30_000;
 
 interface SessionNewEvent {
   type: 'session:new';
@@ -115,6 +116,7 @@ export function AdminNotifications({
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const titleTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const shouldReconnectRef = useRef(true);
+  const recentHandoffsRef = useRef(new Map<string, number>());
   const originalTitleRef = useRef<string>(typeof document !== 'undefined' ? document.title : '');
 
   const openInbox = useCallback(() => {
@@ -198,9 +200,18 @@ export function AdminNotifications({
 
   const notifyHandoff = useCallback(
     (event: SessionNewEvent) => {
+      const sessionId = event.session?.id ?? `unknown-${Date.now()}`;
+      const now = Date.now();
+      const lastNotifiedAt = recentHandoffsRef.current.get(sessionId);
+      if (lastNotifiedAt !== undefined && now - lastNotifiedAt < HANDOFF_DEDUP_WINDOW_MS) return;
+      recentHandoffsRef.current.set(sessionId, now);
+      for (const [id, notifiedAt] of recentHandoffsRef.current) {
+        if (now - notifiedAt >= HANDOFF_DEDUP_WINDOW_MS) recentHandoffsRef.current.delete(id);
+      }
+
       const visitor = event.session?.visitorName?.trim() || 'Посетитель';
       const notification = {
-        sessionId: event.session?.id ?? `unknown-${Date.now()}`,
+        sessionId,
         visitor,
         pageUrl: event.session?.pageUrl ?? null,
       };
