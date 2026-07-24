@@ -170,17 +170,19 @@ export function ChatWindow({ fullscreen = false, onClose }: ChatWindowProps) {
         </div>
       )}
 
-      {/* CSAT — shown when session is resolved */}
+      {/* CSAT is optional; visitors can always continue with a fresh session. */}
       {isResolved && !csatDone.value && <CsatForm />}
-      {isResolved && csatDone.value && (
+      {isResolved && (
         <div class="border-t border-gray-200 bg-gray-50 px-4 py-3 text-center">
-          <p class="text-xs text-gray-400">{t('csatThanks')}</p>
-          <p class="mt-1 text-xs text-gray-500">{t('chatClosedAfterRating')}</p>
+          <p class="text-xs font-medium text-gray-600">
+            {csatDone.value ? t('csatThanks') : t('chatClosed')}
+          </p>
+          <p class="mt-1 text-xs text-gray-500">{t('chatClosedNextStep')}</p>
           <button
             type="button"
             onClick={() => void handleStartNewChat()}
             disabled={isStartingNew}
-            class="mt-2 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:border-indigo-200 hover:text-indigo-700 disabled:opacity-50"
+            class="mt-2 rounded-lg bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-indigo-700 disabled:opacity-50"
           >
             {isStartingNew ? t('startingNewChat') : t('startNewChat')}
           </button>

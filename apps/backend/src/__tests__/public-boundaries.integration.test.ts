@@ -8,6 +8,7 @@ import { chatStream } from '../adapters/llm/openrouter.js';
 import { retrieve } from '../services/retriever.js';
 import { transcribe as transcribeDeepgram } from '../adapters/stt/deepgram.js';
 import { transcribe as transcribeWhisper } from '../adapters/stt/whisper.js';
+import { publishToOperators } from '../services/realtime-hub.js';
 
 vi.mock('../services/retriever.js', () => ({
   retrieve: vi.fn(),
@@ -33,6 +34,10 @@ vi.mock('../services/business-hours.js', () => ({
 
 vi.mock('../services/conversation-summarizer.js', () => ({
   summarizeIfNeeded: vi.fn().mockResolvedValue(undefined),
+}));
+
+vi.mock('../services/realtime-hub.js', () => ({
+  publishToOperators: vi.fn(),
 }));
 
 interface Fixture {
@@ -344,6 +349,19 @@ describe('public chat/STT/provider boundaries (PostgreSQL)', () => {
     });
     expect(sessionAMessages.map((message) => message.role)).toEqual(['USER', 'ASSISTANT']);
     expect(await prisma.message.count({ where: { sessionId: fixture.sessionB } })).toBe(0);
+    expect(publishToOperators).toHaveBeenCalledTimes(1);
+    const realtimeEvent = vi.mocked(publishToOperators).mock.calls[0]?.[1];
+    expect(realtimeEvent).toMatchObject({
+      type: 'session:message',
+      sessionId: fixture.sessionA,
+      message: {
+        content: 'hello',
+        authorType: 'VISITOR',
+      },
+    });
+    expect(await prisma.session.findUnique({ where: { id: fixture.sessionA } })).toMatchObject({
+      unreadByOperator: 1,
+    });
   });
 
   it('sanitizes public LLM errors and keeps provider details out of SSE payloads', async () => {
