@@ -3,18 +3,23 @@ import { t } from '../i18n';
 
 export function LauncherButton({ onClick }: { onClick: () => void }) {
   const agent = agentInfo.value;
+  const hasAvatar = Boolean(agent?.avatarUrl);
 
   return (
     <button
       onClick={onClick}
       title={agent ? t('launcherOpenChatWith', { name: agent.name }) : t('launcherOpenChat')}
-      class="fixed bottom-24 right-6 z-[9999] flex h-14 w-14 items-center justify-center rounded-full bg-indigo-600 shadow-lg transition-transform hover:scale-105 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
+      class={`fixed bottom-24 right-6 z-[9999] flex h-14 w-14 items-center justify-center rounded-full shadow-lg transition-transform hover:scale-105 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2 ${
+        hasAvatar
+          ? 'overflow-hidden bg-white ring-2 ring-white/90 hover:bg-white'
+          : 'bg-indigo-600 hover:bg-indigo-700'
+      }`}
     >
       {agent?.avatarUrl ? (
         <img
           src={agent.avatarUrl}
           alt={agent.name}
-          class="h-full w-full rounded-full object-cover"
+          class="block h-full w-full rounded-full bg-white object-cover"
         />
       ) : (
         <svg

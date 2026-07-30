@@ -79,7 +79,7 @@ export function ChatWindow({ fullscreen = false, onClose }: ChatWindowProps) {
           <img
             src={agent.avatarUrl}
             alt={agent.name}
-            class="h-9 w-9 flex-shrink-0 rounded-full object-cover"
+            class="h-9 w-9 flex-shrink-0 rounded-full bg-white object-cover ring-1 ring-white/60"
           />
         ) : (
           <div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-white/20 text-sm font-bold">
