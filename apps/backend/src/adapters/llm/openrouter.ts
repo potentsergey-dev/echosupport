@@ -4,6 +4,7 @@ import { env } from '../../config/env.js';
 export interface ChatMessage {
   role: 'system' | 'user' | 'assistant' | 'tool';
   content: string;
+  tool_calls?: OpenAI.Chat.Completions.ChatCompletionMessageToolCall[];
   tool_call_id?: string;
 }
 
