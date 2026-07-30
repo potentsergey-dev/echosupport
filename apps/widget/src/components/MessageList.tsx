@@ -28,7 +28,7 @@ function AssistantBubble({
         <img
           src={avatarUrl}
           alt={agentName}
-          class="h-6 w-6 flex-shrink-0 rounded-full object-cover"
+          class="h-6 w-6 flex-shrink-0 rounded-full bg-white object-cover ring-1 ring-gray-200"
         />
       ) : (
         <div class="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-full bg-indigo-100 text-xs font-bold text-indigo-600">
