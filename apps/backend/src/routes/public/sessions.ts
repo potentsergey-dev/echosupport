@@ -452,107 +452,101 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
         // Mutable messages for tool-call loop
         const llmMessages = [...messages] as ChatMessage[];
 
-        if (env.ECHOSUPPORT_DEMO_MARKETING_SEED === 'true') {
-          if (isExplicitHandoffRequest(text)) {
-            const toolResult = await executeTool(
-              'request_handoff',
-              { reason: 'Visitor explicitly requested a human operator in the demo widget.' },
-              { sessionId, agentId: agent.id, tenantId: agent.tenantId },
+        if (env.ECHOSUPPORT_DEMO_MARKETING_SEED === 'true' && isExplicitHandoffRequest(text)) {
+          const toolResult = await executeTool(
+            'request_handoff',
+            { reason: 'Visitor explicitly requested a human operator in the demo widget.' },
+            { sessionId, agentId: agent.id, tenantId: agent.tenantId },
+          );
+          handoffSideEffect = toolResult.sideEffect === 'handoff_requested';
+        }
+
+        for (let round = 0; round < 3; round++) {
+          const isFirstRound = round === 0;
+          const roundTokens: string[] = [];
+
+          const streamTokens = (token: string) => {
+            if (isFirstRound || round > 0) {
+              tokens.push(token);
+              roundTokens.push(token);
+            }
+            sseWrite(raw, 'delta', { text: token });
+          };
+
+          let result;
+          try {
+            result = await chatStream(
+              llmMessages,
+              agent.llmModel,
+              openrouterKey,
+              streamTokens,
+              AGENT_TOOLS,
             );
-            handoffSideEffect = toolResult.sideEffect === 'handoff_requested';
-          }
-
-          const completionText = await chatCompletion(llmMessages, agent.llmModel, openrouterKey);
-          tokens.push(completionText);
-          sseWrite(raw, 'delta', { text: completionText });
-        } else {
-          for (let round = 0; round < 3; round++) {
-            const isFirstRound = round === 0;
-            const roundTokens: string[] = [];
-
-            const streamTokens = (token: string) => {
-              if (isFirstRound || round > 0) {
-                tokens.push(token);
-                roundTokens.push(token);
-              }
-              sseWrite(raw, 'delta', { text: token });
-            };
-
-            let result;
+          } catch (err) {
+            if (!isFirstRound || tokens.length > 0 || !isToolCompatibilityError(err)) {
+              throw err;
+            }
+            req.log.warn(
+              { err: summarizeError(err), agentId: agent.id, model: agent.llmModel },
+              'Retrying assistant response without tools after LLM tool request failed',
+            );
             try {
-              result = await chatStream(
+              result = await chatStream(llmMessages, agent.llmModel, openrouterKey, streamTokens);
+            } catch (fallbackErr) {
+              if (!isToolCompatibilityError(fallbackErr)) throw fallbackErr;
+              req.log.warn(
+                { err: summarizeError(fallbackErr), agentId: agent.id, model: agent.llmModel },
+                'Retrying assistant response without streaming after LLM stream request failed',
+              );
+              const completionText = await chatCompletion(
                 llmMessages,
                 agent.llmModel,
                 openrouterKey,
-                streamTokens,
-                AGENT_TOOLS,
               );
-            } catch (err) {
-              if (!isFirstRound || tokens.length > 0 || !isToolCompatibilityError(err)) {
-                throw err;
-              }
-              req.log.warn(
-                { err: summarizeError(err), agentId: agent.id, model: agent.llmModel },
-                'Retrying assistant response without tools after LLM tool request failed',
-              );
-              try {
-                result = await chatStream(llmMessages, agent.llmModel, openrouterKey, streamTokens);
-              } catch (fallbackErr) {
-                if (!isToolCompatibilityError(fallbackErr)) throw fallbackErr;
-                req.log.warn(
-                  { err: summarizeError(fallbackErr), agentId: agent.id, model: agent.llmModel },
-                  'Retrying assistant response without streaming after LLM stream request failed',
-                );
-                const completionText = await chatCompletion(
-                  llmMessages,
-                  agent.llmModel,
-                  openrouterKey,
-                );
-                streamTokens(completionText);
-                result = { usage: { tokensIn: 0, tokensOut: 0 } };
-              }
+              streamTokens(completionText);
+              result = { usage: { tokensIn: 0, tokensOut: 0 } };
+            }
+          }
+
+          usage = result.usage;
+
+          if (!result.toolCalls || result.toolCalls.length === 0) {
+            // No tool calls — we're done
+            break;
+          }
+
+          // Process tool calls — server-side execution only
+          const assistantContent = roundTokens.join('');
+          if (assistantContent) {
+            llmMessages.push({ role: 'assistant', content: assistantContent });
+          } else {
+            // LLM returned only tool calls (no text before them)
+            llmMessages.push({
+              role: 'assistant',
+              content: '',
+            });
+          }
+
+          for (const tc of result.toolCalls) {
+            const toolResult = await executeTool(tc.name, tc.arguments, {
+              sessionId,
+              agentId: agent.id,
+              tenantId: session.agent.tenantId,
+            });
+
+            if (toolResult.sideEffect === 'handoff_requested') {
+              handoffSideEffect = true;
+            }
+            if (toolResult.quickReplies) {
+              sseWrite(raw, 'quick_replies', { replies: toolResult.quickReplies });
             }
 
-            usage = result.usage;
-
-            if (!result.toolCalls || result.toolCalls.length === 0) {
-              // No tool calls — we're done
-              break;
-            }
-
-            // Process tool calls — server-side execution only
-            const assistantContent = roundTokens.join('');
-            if (assistantContent) {
-              llmMessages.push({ role: 'assistant', content: assistantContent });
-            } else {
-              // LLM returned only tool calls (no text before them)
-              llmMessages.push({
-                role: 'assistant',
-                content: '',
-              });
-            }
-
-            for (const tc of result.toolCalls) {
-              const toolResult = await executeTool(tc.name, tc.arguments, {
-                sessionId,
-                agentId: agent.id,
-                tenantId: session.agent.tenantId,
-              });
-
-              if (toolResult.sideEffect === 'handoff_requested') {
-                handoffSideEffect = true;
-              }
-              if (toolResult.quickReplies) {
-                sseWrite(raw, 'quick_replies', { replies: toolResult.quickReplies });
-              }
-
-              // Add tool result back to messages
-              llmMessages.push({
-                role: 'tool',
-                content: toolResult.result,
-                tool_call_id: tc.id,
-              });
-            }
+            // Add tool result back to messages
+            llmMessages.push({
+              role: 'tool',
+              content: toolResult.result,
+              tool_call_id: tc.id,
+            });
           }
         }
         const fullText = tokens.join('');

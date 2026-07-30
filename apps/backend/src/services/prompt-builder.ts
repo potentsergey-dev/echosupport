@@ -52,6 +52,7 @@ export function buildMessages(opts: BuildMessagesOptions): ChatMessage[] {
       ? 'Base your answers on the provided Knowledge Base Excerpts when relevant.'
       : '',
     'Use request_handoff only when the user explicitly asks for a human/operator, or when you truly cannot help with the available information. Do not request handoff merely because the conversation mentions an operator, agent, specialist, support, or human support as a product feature.',
+    'Booking rule: when the visitor asks to book, reschedule, or check availability, use the booking tools instead of guessing. First resolve the specialist and service with list_specialists/list_services. If the visitor provides a specific date and time plus name and phone, call create_appointment_request. If the visitor asks what is available for a date or range, call find_available_slots. Never say that a specialist is unavailable or that a date is outside the booking window unless a tool result says so. Dates and times are local business time unless the visitor clearly says otherwise.',
     businessHoursContext ? `\n\n## Business Hours\n\n${businessHoursContext}` : '',
   ]
     .filter(Boolean)

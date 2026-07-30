@@ -25,6 +25,12 @@ interface ZonedDateTimeParts {
   minutes: number;
 }
 
+interface LocalDateParts {
+  year: number;
+  month: number;
+  day: number;
+}
+
 function getZonedDateTimeParts(
   date: Date,
   timeZone = DEFAULT_BUSINESS_TIMEZONE,
@@ -58,6 +64,66 @@ function getZonedDateTimeParts(
   };
 }
 
+function parseDateKey(dateKey: string): LocalDateParts {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return { year: year ?? 1970, month: month ?? 1, day: day ?? 1 };
+}
+
+function addDaysToDateKey(dateKey: string, days: number): string {
+  const { year, month, day } = parseDateKey(dateKey);
+  const date = new Date(Date.UTC(year, month - 1, day + days));
+  return date.toISOString().slice(0, 10);
+}
+
+function getTimeZoneOffsetMs(date: Date, timeZone = DEFAULT_BUSINESS_TIMEZONE): number {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+  const parts = formatter.formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '0';
+  const asUtc = Date.UTC(
+    parseInt(get('year')),
+    parseInt(get('month')) - 1,
+    parseInt(get('day')),
+    parseInt(get('hour')),
+    parseInt(get('minute')),
+    parseInt(get('second')),
+  );
+  return asUtc - date.getTime();
+}
+
+function zonedDateTimeToUtc(
+  dateKey: string,
+  minutes: number,
+  timeZone = DEFAULT_BUSINESS_TIMEZONE,
+): Date {
+  const { year, month, day } = parseDateKey(dateKey);
+  const hour = Math.floor(minutes / 60);
+  const minute = minutes % 60;
+  const localAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+  const first = new Date(localAsUtc - getTimeZoneOffsetMs(new Date(localAsUtc), timeZone));
+  return new Date(localAsUtc - getTimeZoneOffsetMs(first, timeZone));
+}
+
+function parseSearchBoundary(
+  value: Date | string,
+  boundary: 'start' | 'end',
+  timeZone = DEFAULT_BUSINESS_TIMEZONE,
+): Date {
+  if (value instanceof Date) return value;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return zonedDateTimeToUtc(value, boundary === 'start' ? 0 : 24 * 60 - 1, timeZone);
+  }
+  return new Date(value);
+}
+
 /**
  * Find available appointment slots for a specialist in a date range.
  *
@@ -72,9 +138,10 @@ export async function findAvailableSlots(
   serviceId: string | null | undefined,
   dateFrom: Date | string,
   dateTo: Date | string,
+  timeZone = DEFAULT_BUSINESS_TIMEZONE,
 ): Promise<AvailableSlot[]> {
-  const from = new Date(dateFrom);
-  const to = new Date(dateTo);
+  const from = parseSearchBoundary(dateFrom, 'start', timeZone);
+  const to = parseSearchBoundary(dateTo, 'end', timeZone);
 
   // Fetch specialist with working hours
   const specialist = await prisma.specialist.findUnique({
@@ -117,29 +184,20 @@ export async function findAvailableSlots(
   const slots: AvailableSlot[] = [];
   const slotMs = durationMin * 60 * 1000;
 
-  // Iterate day by day
-  const current = new Date(from);
-  current.setHours(0, 0, 0, 0);
+  // Iterate local business days in the configured timezone.
+  let currentDateKey = getZonedDateTimeParts(from, timeZone).dateKey;
+  const toDateKey = getZonedDateTimeParts(to, timeZone).dateKey;
 
-  while (current <= to) {
-    const dow = current.getDay(); // 0=Sunday
+  while (currentDateKey <= toDateKey) {
+    const noon = zonedDateTimeToUtc(currentDateKey, 12 * 60, timeZone);
+    const dow = getZonedDateTimeParts(noon, timeZone).dayOfWeek;
 
     // Find working hours for this day
     const wh = specialist.workingHours.filter((h) => h.dayOfWeek === dow);
     for (const hours of wh) {
       // Build slot candidates within this working period
-      const dayStart = new Date(current);
-      dayStart.setHours(
-        0,
-        hours.fromMinutes % 60 === 0 ? Math.floor(hours.fromMinutes / 60) : 0,
-        0,
-        0,
-      );
-      dayStart.setMinutes(hours.fromMinutes % 60 === 0 ? 0 : hours.fromMinutes % 60);
-      dayStart.setHours(Math.floor(hours.fromMinutes / 60), hours.fromMinutes % 60, 0, 0);
-
-      const dayEnd = new Date(current);
-      dayEnd.setHours(Math.floor(hours.toMinutes / 60), hours.toMinutes % 60, 0, 0);
+      const dayStart = zonedDateTimeToUtc(currentDateKey, hours.fromMinutes, timeZone);
+      const dayEnd = zonedDateTimeToUtc(currentDateKey, hours.toMinutes, timeZone);
 
       let slotStart = Math.max(dayStart.getTime(), from.getTime());
       const periodEnd = Math.min(dayEnd.getTime(), to.getTime());
@@ -172,7 +230,7 @@ export async function findAvailableSlots(
       }
     }
 
-    current.setDate(current.getDate() + 1);
+    currentDateKey = addDaysToDateKey(currentDateKey, 1);
   }
 
   return slots;
