@@ -451,6 +451,7 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
 
         // Mutable messages for tool-call loop
         const llmMessages = [...messages] as ChatMessage[];
+        let endedWithToolCalls = false;
 
         if (env.ECHOSUPPORT_DEMO_MARKETING_SEED === 'true' && isExplicitHandoffRequest(text)) {
           const toolResult = await executeTool(
@@ -461,7 +462,7 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
           handoffSideEffect = toolResult.sideEffect === 'handoff_requested';
         }
 
-        for (let round = 0; round < 3; round++) {
+        for (let round = 0; round < 5; round++) {
           const isFirstRound = round === 0;
           const roundTokens: string[] = [];
 
@@ -512,8 +513,10 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
 
           if (!result.toolCalls || result.toolCalls.length === 0) {
             // No tool calls — we're done
+            endedWithToolCalls = false;
             break;
           }
+          endedWithToolCalls = true;
 
           // Process tool calls — server-side execution only
           const assistantContent = roundTokens.join('');
@@ -550,6 +553,31 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
               content: toolResult.result,
               tool_call_id: tc.id,
             });
+          }
+        }
+
+        if (endedWithToolCalls) {
+          req.log.warn(
+            { agentId: agent.id, model: agent.llmModel },
+            'Tool loop ended without a final assistant response; requesting final text without tools',
+          );
+          const streamFinalTokens = (token: string) => {
+            tokens.push(token);
+            sseWrite(raw, 'delta', { text: token });
+          };
+
+          try {
+            const finalResult = await chatStream(
+              llmMessages,
+              agent.llmModel,
+              openrouterKey,
+              streamFinalTokens,
+            );
+            usage = finalResult.usage;
+          } catch (err) {
+            if (!isToolCompatibilityError(err)) throw err;
+            const completionText = await chatCompletion(llmMessages, agent.llmModel, openrouterKey);
+            streamFinalTokens(completionText);
           }
         }
         const fullText = tokens.join('');
