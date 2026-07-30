@@ -517,15 +517,18 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
 
           // Process tool calls — server-side execution only
           const assistantContent = roundTokens.join('');
-          if (assistantContent) {
-            llmMessages.push({ role: 'assistant', content: assistantContent });
-          } else {
-            // LLM returned only tool calls (no text before them)
-            llmMessages.push({
-              role: 'assistant',
-              content: '',
-            });
-          }
+          llmMessages.push({
+            role: 'assistant',
+            content: assistantContent,
+            tool_calls: result.toolCalls.map((tc) => ({
+              id: tc.id,
+              type: 'function' as const,
+              function: {
+                name: tc.name,
+                arguments: JSON.stringify(tc.arguments),
+              },
+            })),
+          });
 
           for (const tc of result.toolCalls) {
             const toolResult = await executeTool(tc.name, tc.arguments, {
