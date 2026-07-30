@@ -93,20 +93,35 @@ describe('slot finder', () => {
     await expect(
       isSlotAvailable(
         'specialist-1',
-        new Date('2026-06-29T09:00:00'),
-        new Date('2026-06-29T10:00:00'),
+        new Date('2026-06-29T09:00:00.000Z'),
+        new Date('2026-06-29T10:00:00.000Z'),
       ),
     ).resolves.toBe(true);
 
     vi.mocked(prisma.specialist.findUnique).mockResolvedValueOnce({
       isActive: true,
-      workingHours: [{ dayOfWeek: 1, fromMinutes: 540, toMinutes: 600 }],
+      workingHours: [{ dayOfWeek: 1, fromMinutes: 12 * 60, toMinutes: 13 * 60 }],
     } as never);
     await expect(
       isSlotWithinWorkingHours(
         'specialist-1',
-        new Date('2026-06-29T09:00:00'),
-        new Date('2026-06-29T10:00:00'),
+        new Date('2026-06-29T09:00:00.000Z'),
+        new Date('2026-06-29T10:00:00.000Z'),
+      ),
+    ).resolves.toBe(true);
+  });
+
+  it('checks working hours in the business timezone instead of server UTC', async () => {
+    vi.mocked(prisma.specialist.findUnique).mockResolvedValueOnce({
+      isActive: true,
+      workingHours: [{ dayOfWeek: 2, fromMinutes: 9 * 60, toMinutes: 18 * 60 }],
+    } as never);
+
+    await expect(
+      isSlotWithinWorkingHours(
+        'specialist-1',
+        new Date('2026-08-04T08:00:00.000Z'), // 11:00 Tuesday in Europe/Minsk
+        new Date('2026-08-04T09:30:00.000Z'), // 12:30 Tuesday in Europe/Minsk
       ),
     ).resolves.toBe(true);
   });

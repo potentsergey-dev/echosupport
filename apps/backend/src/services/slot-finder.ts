@@ -17,6 +17,46 @@ export interface AvailableSlot {
 }
 
 const DEFAULT_SLOT_DURATION_MIN = 60;
+const DEFAULT_BUSINESS_TIMEZONE = 'Europe/Minsk';
+
+interface ZonedDateTimeParts {
+  dateKey: string;
+  dayOfWeek: number;
+  minutes: number;
+}
+
+function getZonedDateTimeParts(
+  date: Date,
+  timeZone = DEFAULT_BUSINESS_TIMEZONE,
+): ZonedDateTimeParts {
+  const formatter = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const parts = formatter.formatToParts(date);
+  const get = (type: string) => parts.find((part) => part.type === type)?.value ?? '';
+  const dowMap: Record<string, number> = {
+    Sun: 0,
+    Mon: 1,
+    Tue: 2,
+    Wed: 3,
+    Thu: 4,
+    Fri: 5,
+    Sat: 6,
+  };
+
+  return {
+    dateKey: `${get('year')}-${get('month')}-${get('day')}`,
+    dayOfWeek: dowMap[get('weekday')] ?? 0,
+    minutes: parseInt(get('hour')) * 60 + parseInt(get('minute')),
+  };
+}
 
 /**
  * Find available appointment slots for a specialist in a date range.
@@ -166,6 +206,7 @@ export async function isSlotWithinWorkingHours(
   specialistId: string,
   startsAt: Date,
   endsAt: Date,
+  timeZone = DEFAULT_BUSINESS_TIMEZONE,
 ): Promise<boolean> {
   const specialist = await prisma.specialist.findUnique({
     where: { id: specialistId },
@@ -173,12 +214,12 @@ export async function isSlotWithinWorkingHours(
   });
   if (!specialist || !specialist.isActive) return false;
 
-  const dow = startsAt.getDay(); // 0 = Sunday
-  const wh = specialist.workingHours.filter((h) => h.dayOfWeek === dow);
+  const start = getZonedDateTimeParts(startsAt, timeZone);
+  const end = getZonedDateTimeParts(endsAt, timeZone);
+  if (start.dateKey !== end.dateKey) return false;
+
+  const wh = specialist.workingHours.filter((h) => h.dayOfWeek === start.dayOfWeek);
   if (wh.length === 0) return false; // No working hours set for this day
 
-  const startMinutes = startsAt.getHours() * 60 + startsAt.getMinutes();
-  const endMinutes = endsAt.getHours() * 60 + endsAt.getMinutes();
-
-  return wh.some((h) => h.fromMinutes <= startMinutes && endMinutes <= h.toMinutes);
+  return wh.some((h) => h.fromMinutes <= start.minutes && end.minutes <= h.toMinutes);
 }
