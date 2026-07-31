@@ -98,7 +98,7 @@ export async function assertSlotCanAcceptAppointment({
   const overlappingAppointments = await db.appointment.findMany({
     where: {
       specialistId,
-      status: { notIn: ['CANCELLED', 'NO_SHOW'] },
+      status: { in: ['PENDING', 'CONFIRMED'] },
       ...(excludeAppointmentId ? { id: { not: excludeAppointmentId } } : {}),
       startsAt: { lt: endsAt },
       endsAt: { gt: startsAt },

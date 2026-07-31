@@ -225,7 +225,7 @@ export async function findAvailableSlots(
   const existingAppointments = await prisma.appointment.findMany({
     where: {
       specialistId,
-      status: { notIn: ['CANCELLED'] },
+      status: { in: ['PENDING', 'CONFIRMED'] },
       startsAt: { lt: to },
       endsAt: { gt: from },
     },

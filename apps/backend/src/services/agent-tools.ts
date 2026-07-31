@@ -27,6 +27,11 @@ import {
 } from './slot-finder.js';
 import { normalizeQuickReplies } from './quick-replies.js';
 import { assertSlotCanAcceptAppointment, getBookableServiceForSpecialist } from './booking.js';
+import {
+  buildSlotQuickReplies,
+  matchSpecialistsByName,
+  resolveRelativeBookingDateRange,
+} from './booking-tool-utils.js';
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
   return [...new Set(values.map((value) => value?.trim()).filter(Boolean) as string[])];
@@ -166,7 +171,12 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
         properties: {
           specialist_id: {
             type: 'string',
-            description: 'The specialist ID to check availability for.',
+            description: 'The specialist ID to check availability for, when confidently known.',
+          },
+          specialist_name: {
+            type: 'string',
+            description:
+              'Specialist name from the visitor, including partial or inflected forms such as "Еве" or "Анне". Send this when specialist_id is unknown or uncertain; the server resolves it.',
           },
           service_id: {
             type: 'string',
@@ -180,8 +190,14 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
             type: 'string',
             description: 'End of the search window as a local business date, e.g. "2026-06-07".',
           },
+          relative_date: {
+            type: 'string',
+            enum: ['today', 'tomorrow', 'this_week', 'next_week'],
+            description:
+              'Use for a relative visitor request. The server deterministically converts weeks to Monday-Sunday in business time.',
+          },
         },
-        required: ['specialist_id', 'date_from', 'date_to'],
+        required: ['date_from', 'date_to'],
       },
     },
   },
@@ -442,14 +458,17 @@ export async function executeTool(
     }
 
     case 'find_available_slots': {
-      const specialistId = String(args['specialist_id'] ?? '');
+      let specialistId = String(args['specialist_id'] ?? '');
+      const specialistName = String(args['specialist_name'] ?? '').trim();
       const serviceId = args['service_id'] ? String(args['service_id']) : null;
-      const dateFrom = String(args['date_from'] ?? '');
-      const dateTo = String(args['date_to'] ?? '');
+      let dateFrom = String(args['date_from'] ?? '');
+      let dateTo = String(args['date_to'] ?? '');
 
-      if (!specialistId || !dateFrom || !dateTo) {
+      if ((!specialistId && !specialistName) || !dateFrom || !dateTo) {
         return {
-          result: JSON.stringify({ error: 'specialist_id, date_from, date_to are required' }),
+          result: JSON.stringify({
+            error: 'specialist_id or specialist_name, plus date_from and date_to, are required',
+          }),
         };
       }
 
@@ -459,16 +478,89 @@ export async function executeTool(
       });
       if (!agent) return { result: JSON.stringify({ error: 'Agent not found' }) };
 
-      const specialist = await prisma.specialist.findFirst({
-        where: {
-          id: specialistId,
-          tenantId: agent.tenantId,
-          isActive: true,
-          OR: [{ agentId: null }, { agentId: ctx.agentId }],
-        },
-        select: { id: true },
+      const specialistWhere = {
+        tenantId: agent.tenantId,
+        isActive: true,
+        OR: [{ agentId: null }, { agentId: ctx.agentId }],
+      };
+      let specialist = specialistId
+        ? await prisma.specialist.findFirst({
+            where: { id: specialistId, ...specialistWhere },
+            select: { id: true, name: true, role: true },
+          })
+        : null;
+
+      if (!specialist && specialistName) {
+        const candidates = await prisma.specialist.findMany({
+          where: specialistWhere,
+          select: { id: true, name: true, role: true },
+          orderBy: { name: 'asc' },
+        });
+        const matches = matchSpecialistsByName(
+          specialistName,
+          candidates.map((candidate) => ({
+            ...candidate,
+            matchingHints: buildSpecialistMatchingHints(candidate.name),
+          })),
+        );
+        if (matches.length > 1) {
+          return {
+            result: JSON.stringify({
+              error: 'SPECIALIST_AMBIGUOUS',
+              instruction: 'Ask the visitor which specialist they mean.',
+              candidates: matches.map(({ id, name, role }) => ({ id, name, role })),
+            }),
+          };
+        }
+        specialist = matches[0] ?? null;
+        specialistId = specialist?.id ?? '';
+      }
+      if (!specialist) {
+        return {
+          result: JSON.stringify({
+            error: 'SPECIALIST_NOT_FOUND',
+            specialistName: specialistName || undefined,
+            instruction: 'Ask the visitor to choose from list_specialists.',
+          }),
+        };
+      }
+
+      if (!serviceId) {
+        const services = await prisma.service.findMany({
+          where: {
+            tenantId: agent.tenantId,
+            isActive: true,
+            OR: [{ specialistId: null }, { specialistId }],
+          },
+          select: { id: true, name: true, durationMin: true, priceLabel: true },
+          orderBy: { name: 'asc' },
+        });
+        return {
+          result: JSON.stringify({
+            error: 'SERVICE_REQUIRED',
+            specialist: { id: specialist.id, name: specialist.name, role: specialist.role },
+            services,
+            instruction:
+              'The specialist was found. Ask the visitor to choose a service before checking slots.',
+          }),
+        };
+      }
+
+      const timeZone = await getBusinessTimezone(ctx.agentId);
+      const now = new Date();
+      const lastVisitorMessage = await prisma.message.findFirst({
+        where: { sessionId: ctx.sessionId, authorType: 'VISITOR', isInternal: false },
+        orderBy: { createdAt: 'desc' },
+        select: { content: true },
       });
-      if (!specialist) return { result: JSON.stringify({ error: 'Specialist not found' }) };
+      const relativeDateText = [lastVisitorMessage?.content, args['relative_date']]
+        .filter(Boolean)
+        .join(' ');
+      const relativeRange = resolveRelativeBookingDateRange(relativeDateText, now, timeZone);
+      if (relativeRange) {
+        dateFrom = relativeRange.dateFrom;
+        dateTo = relativeRange.dateTo;
+      }
 
       const bookableService = await getBookableServiceForSpecialist({
         tenantId: agent.tenantId,
@@ -479,7 +571,6 @@ export async function executeTool(
         return { result: JSON.stringify({ error: 'Service not found for this specialist' }) };
       }
 
-      // Limit search range to 14 days for safety
       const from = new Date(dateFrom);
       let to = new Date(dateTo);
       if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime())) {
@@ -488,12 +579,8 @@ export async function executeTool(
       const maxTo = new Date(from);
       maxTo.setDate(maxTo.getDate() + 14);
       if (to > maxTo) to = maxTo;
-
-      // Set to end of day
       to.setHours(23, 59, 59, 999);
 
-      const timeZone = await getBusinessTimezone(ctx.agentId);
-      const now = new Date();
       const todayKey = getZonedDateTimeParts(now, timeZone).dateKey;
       const requestedFromKey = /^\d{4}-\d{2}-\d{2}$/.test(dateFrom)
         ? dateFrom
@@ -507,17 +594,20 @@ export async function executeTool(
         dateToForSearch,
         timeZone,
       );
+      const formattedSlots = slots
+        .slice(0, 20)
+        .map((slot) => formatAvailableSlotForBusinessTime(slot, timeZone));
 
-      // Return at most 20 slots to keep context manageable
       return {
         result: JSON.stringify({
           timeZone,
+          dateRange: { dateFrom, dateTo, kind: relativeRange?.kind ?? 'explicit' },
+          specialist: { id: specialist.id, name: specialist.name, role: specialist.role },
           instruction:
             'These slots are already converted to local business time. Show display/local times to the visitor. Use bookingValue as starts_at when creating an appointment.',
-          slots: slots
-            .slice(0, 20)
-            .map((slot) => formatAvailableSlotForBusinessTime(slot, timeZone)),
+          slots: formattedSlots,
         }),
+        quickReplies: buildSlotQuickReplies(formattedSlots),
       };
     }
 
