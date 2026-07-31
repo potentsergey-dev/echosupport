@@ -98,6 +98,29 @@ describe('slot finder', () => {
     expect(slots[0]?.endsAt).toBe('2026-08-06T07:30:00.000Z');
   });
 
+  it('skips past slots today and aligns to the next service-duration slot', async () => {
+    vi.mocked(prisma.specialist.findUnique).mockResolvedValue({
+      isActive: true,
+      workingHours: [{ dayOfWeek: 5, fromMinutes: 9 * 60, toMinutes: 18 * 60 }],
+    } as never);
+    vi.mocked(prisma.service.findUnique).mockResolvedValue({ durationMin: 90 } as never);
+    vi.mocked(prisma.appointment.findMany).mockResolvedValue([]);
+
+    const slots = await findAvailableSlots(
+      'specialist-1',
+      'service-1',
+      new Date('2026-07-31T08:50:00.000Z'), // 11:50 Friday in Europe/Minsk
+      '2026-07-31',
+    );
+
+    expect(slots.map((slot) => slot.startsAt)).toEqual([
+      '2026-07-31T09:00:00.000Z', // 12:00 local
+      '2026-07-31T10:30:00.000Z', // 13:30 local
+      '2026-07-31T12:00:00.000Z', // 15:00 local
+      '2026-07-31T13:30:00.000Z', // 16:30 local
+    ]);
+  });
+
   it('formats UTC slots as local business times for LLM tools', () => {
     const slot = formatAvailableSlotForBusinessTime({
       startsAt: '2026-08-04T09:00:00.000Z',

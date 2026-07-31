@@ -451,11 +451,17 @@ export async function executeTool(
       to.setHours(23, 59, 59, 999);
 
       const timeZone = await getBusinessTimezone(ctx.agentId);
+      const now = new Date();
+      const todayKey = getZonedDateTimeParts(now, timeZone).dateKey;
+      const requestedFromKey = /^\d{4}-\d{2}-\d{2}$/.test(dateFrom)
+        ? dateFrom
+        : getZonedDateTimeParts(from, timeZone).dateKey;
+      const dateFromForSearch: Date | string = requestedFromKey <= todayKey ? now : dateFrom;
       const dateToForSearch = to > maxTo ? getZonedDateTimeParts(maxTo, timeZone).dateKey : dateTo;
       const slots = await findAvailableSlots(
         specialistId,
         bookableService.id,
-        dateFrom,
+        dateFromForSearch,
         dateToForSearch,
         timeZone,
       );

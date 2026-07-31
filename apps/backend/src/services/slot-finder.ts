@@ -116,6 +116,12 @@ function pad2(value: number): string {
   return String(value).padStart(2, '0');
 }
 
+function alignSlotStartToGrid(slotStart: number, dayStart: number, slotMs: number): number {
+  if (slotStart <= dayStart) return dayStart;
+  const offset = slotStart - dayStart;
+  return dayStart + Math.ceil(offset / slotMs) * slotMs;
+}
+
 export function formatBusinessDateTime(date: Date, timeZone = DEFAULT_BUSINESS_TIMEZONE): string {
   const parts = getZonedDateTimeParts(date, timeZone);
   const hour = Math.floor(parts.minutes / 60);
@@ -251,7 +257,11 @@ export async function findAvailableSlots(
       const dayStart = zonedDateTimeToUtc(currentDateKey, hours.fromMinutes, timeZone);
       const dayEnd = zonedDateTimeToUtc(currentDateKey, hours.toMinutes, timeZone);
 
-      let slotStart = Math.max(dayStart.getTime(), from.getTime());
+      let slotStart = alignSlotStartToGrid(
+        Math.max(dayStart.getTime(), from.getTime()),
+        dayStart.getTime(),
+        slotMs,
+      );
       const periodEnd = Math.min(dayEnd.getTime(), to.getTime());
 
       while (slotStart + slotMs <= periodEnd) {
