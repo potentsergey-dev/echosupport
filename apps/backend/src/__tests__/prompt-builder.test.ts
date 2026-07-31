@@ -91,4 +91,29 @@ describe('prompt builder', () => {
     );
     expect(systemPrompt).toContain('ask which service they want before checking slots');
   });
+  it('treats returned group slots as authoritative on confirmation', () => {
+    const messages = buildMessages({
+      agentSystemPrompt: 'You are a salon assistant.',
+      chunks: [
+        {
+          content: 'Group classes are available only in separately pre-created sessions.',
+          sourceType: 'FILE',
+          sourceLabel: 'booking-rules.md',
+          score: 0.9,
+        },
+      ],
+      history: [
+        { role: 'USER', content: 'Меня зовут Сергей, телефон +375290000099.' },
+        { role: 'ASSISTANT', content: 'Доступно 2 августа с 11:00 до 12:00.' },
+      ],
+      summary: null,
+      userText: 'Да, это время подойдет, запиши.',
+    });
+
+    const systemPrompt = String(messages[0]?.content ?? '');
+    expect(systemPrompt).toContain('Every slot returned by find_available_slots is authoritative');
+    expect(systemPrompt).toContain('including group services');
+    expect(systemPrompt).toContain('immediately call create_appointment_request');
+    expect(systemPrompt).toContain('override conflicting general Knowledge Base text');
+  });
 });
