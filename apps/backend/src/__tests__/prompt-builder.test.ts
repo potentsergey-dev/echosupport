@@ -48,4 +48,21 @@ describe('prompt builder', () => {
       'keep the same specialist/service and search or offer other slots for them',
     );
   });
+
+  it('requires clarification when specialist names or surnames are ambiguous', () => {
+    const messages = buildMessages({
+      agentSystemPrompt: 'You are a salon assistant.',
+      chunks: [],
+      history: [],
+      summary: null,
+      userText: 'Хочу записаться к Анне.',
+    });
+
+    const systemPrompt = String(messages[0]?.content ?? '');
+    expect(systemPrompt).toContain(
+      'If a provided name or surname matches more than one active specialist',
+    );
+    expect(systemPrompt).toContain('do not guess by first name or surname');
+    expect(systemPrompt).toContain('ask a clarifying question');
+  });
 });
