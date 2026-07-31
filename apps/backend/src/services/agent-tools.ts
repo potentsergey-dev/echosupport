@@ -568,7 +568,24 @@ export async function executeTool(
         serviceId,
       });
       if (!bookableService) {
-        return { result: JSON.stringify({ error: 'Service not found for this specialist' }) };
+        const services = await prisma.service.findMany({
+          where: {
+            tenantId: agent.tenantId,
+            isActive: true,
+            OR: [{ specialistId: null }, { specialistId }],
+          },
+          select: { id: true, name: true, durationMin: true, priceLabel: true },
+          orderBy: { name: 'asc' },
+        });
+        return {
+          result: JSON.stringify({
+            error: 'SERVICE_REQUIRED',
+            specialist: { id: specialist.id, name: specialist.name, role: specialist.role },
+            services,
+            instruction:
+              'The selected service does not belong to this specialist. Ask the visitor to choose one of the listed services.',
+          }),
+        };
       }
 
       const from = new Date(dateFrom);
