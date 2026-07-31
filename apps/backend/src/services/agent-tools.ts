@@ -127,7 +127,7 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: 'find_available_slots',
       description:
-        'Find available appointment time slots for a specialist. Returns free slots in the business local timezone plus UTC audit fields.',
+        'Find available appointment time slots for the requested specialist. If the visitor already selected a specialist in the conversation, keep using that same specialist unless the visitor explicitly asks to change. Returns free slots in the business local timezone plus UTC audit fields.',
       parameters: {
         type: 'object',
         properties: {
