@@ -28,6 +28,38 @@ import {
 import { normalizeQuickReplies } from './quick-replies.js';
 import { assertSlotCanAcceptAppointment, getBookableServiceForSpecialist } from './booking.js';
 
+function uniqueStrings(values: Array<string | null | undefined>): string[] {
+  return [...new Set(values.map((value) => value?.trim()).filter(Boolean) as string[])];
+}
+
+function russianNameForms(name: string): string[] {
+  const trimmed = name.trim();
+  if (trimmed.length < 2) return [trimmed];
+
+  if (/а$/i.test(trimmed)) {
+    const stem = trimmed.slice(0, -1);
+    return [trimmed, `${stem}е`, `${stem}у`, `${stem}ой`];
+  }
+  if (/я$/i.test(trimmed)) {
+    const stem = trimmed.slice(0, -1);
+    return [trimmed, `${stem}е`, `${stem}ю`, `${stem}и`, `${stem}ей`];
+  }
+
+  return [trimmed];
+}
+
+function buildSpecialistMatchingHints(name: string): string[] {
+  const parts = name.split(/\s+/).filter(Boolean);
+  const [firstName, lastName] = parts;
+  return uniqueStrings([
+    name,
+    firstName,
+    lastName,
+    ...russianNameForms(firstName ?? ''),
+    ...russianNameForms(lastName ?? ''),
+  ]);
+}
+
 // ── Tool schemas (OpenAI function-calling format) ─────────────────────────────
 
 export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
@@ -353,7 +385,16 @@ export async function executeTool(
         orderBy: { name: 'asc' },
       });
 
-      return { result: JSON.stringify({ specialists }) };
+      return {
+        result: JSON.stringify({
+          instruction:
+            'Use matchingHints to resolve inflected or partial specialist names from the visitor. If more than one specialist matches the same hint, ask the visitor to clarify by full name/role.',
+          specialists: specialists.map((specialist) => ({
+            ...specialist,
+            matchingHints: buildSpecialistMatchingHints(specialist.name),
+          })),
+        }),
+      };
     }
 
     case 'list_services': {

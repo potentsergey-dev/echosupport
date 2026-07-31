@@ -84,6 +84,7 @@ describe('prompt builder', () => {
     expect(systemPrompt).toContain(
       'Match specialist names flexibly across normal inflected forms and nicknames',
     );
+    expect(systemPrompt).toContain('using the matchingHints returned by list_specialists');
     expect(systemPrompt).toContain('Russian "к Еве" should be treated as "Ева"');
     expect(systemPrompt).toContain(
       'If the visitor explicitly changes the specialist but does not specify a service',
