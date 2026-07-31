@@ -65,4 +65,29 @@ describe('prompt builder', () => {
     expect(systemPrompt).toContain('do not guess by first name or surname');
     expect(systemPrompt).toContain('ask a clarifying question');
   });
+
+  it('handles inflected specialist names and asks for service after specialist changes', () => {
+    const messages = buildMessages({
+      agentSystemPrompt: 'You are a salon assistant.',
+      chunks: [],
+      history: [
+        {
+          role: 'USER',
+          content: 'Хочу записаться к Анне на Signature cut на этой неделе.',
+        },
+      ],
+      summary: null,
+      userText: 'А к Еве на 2 августа можно записаться?',
+    });
+
+    const systemPrompt = String(messages[0]?.content ?? '');
+    expect(systemPrompt).toContain(
+      'Match specialist names flexibly across normal inflected forms and nicknames',
+    );
+    expect(systemPrompt).toContain('Russian "к Еве" should be treated as "Ева"');
+    expect(systemPrompt).toContain(
+      'If the visitor explicitly changes the specialist but does not specify a service',
+    );
+    expect(systemPrompt).toContain('ask which service they want before checking slots');
+  });
 });
