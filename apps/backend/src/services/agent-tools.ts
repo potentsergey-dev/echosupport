@@ -207,7 +207,7 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: 'create_appointment_request',
       description:
-        'Create an appointment booking request. Only call after the visitor explicitly chose or confirmed one exact local date and start time, plus name, phone, specialist, and service. Do not call this tool when the visitor only gave a broad range such as "this week" or asked for help choosing a free time; use find_available_slots first and ask the visitor to pick a slot.',
+        'Create an appointment booking request, including group-service bookings. Call after the visitor explicitly chose or confirmed one exact local date and start time, plus name, phone, specialist, and service. A group slot returned by find_available_slots is bookable; call this tool and let the backend enforce capacity instead of refusing it. Do not call when the visitor only gave a broad range such as "this week" or asked for help choosing a free time; use find_available_slots first and ask the visitor to pick a slot.',
       parameters: {
         type: 'object',
         properties: {
@@ -639,8 +639,14 @@ export async function executeTool(
           timeZone,
           dateRange: { dateFrom, dateTo, kind: relativeRange?.kind ?? 'explicit' },
           specialist: { id: specialist.id, name: specialist.name, role: specialist.role },
-          instruction:
-            'These slots are already converted to local business time. Show display/local times to the visitor. Use bookingValue as starts_at when creating an appointment.',
+          service: {
+            id: bookableService.id,
+            isGroup: bookableService.isGroup,
+            capacity: bookableService.capacity,
+          },
+          instruction: bookableService.isGroup
+            ? 'Every returned group slot is available for booking. When the visitor confirms one, call create_appointment_request with its bookingValue. Do not require a separately pre-created group session; backend capacity checks are authoritative.'
+            : 'These slots are already converted to local business time. Show display/local times to the visitor. Use bookingValue as starts_at when creating an appointment.',
           slots: formattedSlots,
         }),
         quickReplies: buildSlotQuickReplies(formattedSlots),

@@ -13,7 +13,7 @@ vi.mock('../services/realtime-hub.js', () => ({
 }));
 
 import { prisma } from '../db/prisma.js';
-import { executeTool } from '../services/agent-tools.js';
+import { AGENT_TOOLS, executeTool } from '../services/agent-tools.js';
 
 describe('agent tools', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -40,6 +40,14 @@ describe('agent tools', () => {
     };
     expect(payload.specialists[0]?.matchingHints).toEqual(
       expect.arrayContaining(['Ева Король', 'Ева', 'Еве', 'Еву', 'Король']),
+    );
+  });
+  it('marks returned group slots as bookable in the create tool contract', () => {
+    const createTool = AGENT_TOOLS.find(
+      (tool) => tool.type === 'function' && tool.function.name === 'create_appointment_request',
+    );
+    expect(createTool?.type === 'function' ? createTool.function.description : '').toContain(
+      'A group slot returned by find_available_slots is bookable',
     );
   });
 });
