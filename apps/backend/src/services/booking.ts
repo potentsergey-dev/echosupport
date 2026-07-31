@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { prisma } from '../db/prisma.js';
+import { getActiveServicesForSpecialist } from './specialist-services.js';
 
 export const APPOINTMENT_STATUSES = [
   'PENDING',
@@ -57,16 +58,8 @@ export async function getBookableServiceForSpecialist({
 }): Promise<BookableServiceResult | null> {
   if (!serviceId) return { id: null, durationMin: 60, isGroup: false, capacity: 1 };
 
-  const service = await prisma.service.findFirst({
-    where: {
-      id: serviceId,
-      tenantId,
-      isActive: true,
-      OR: [{ specialistId: null }, { specialistId }],
-    },
-    select: { id: true, durationMin: true, isGroup: true, capacity: true },
-  });
-
+  const services = await getActiveServicesForSpecialist({ tenantId, specialistId });
+  const service = services.find((candidate) => candidate.id === serviceId);
   if (!service) return null;
   return {
     id: service.id,

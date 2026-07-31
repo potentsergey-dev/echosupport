@@ -32,6 +32,7 @@ import {
   matchSpecialistsByName,
   resolveRelativeBookingDateRange,
 } from './booking-tool-utils.js';
+import { getActiveServicesForSpecialist } from './specialist-services.js';
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
   return [...new Set(values.map((value) => value?.trim()).filter(Boolean) as string[])];
@@ -421,10 +422,7 @@ export async function executeTool(
       });
       if (!agent) return { result: JSON.stringify({ error: 'Agent not found' }) };
 
-      const where: NonNullable<Parameters<typeof prisma.service.findMany>[0]>['where'] = {
-        tenantId: agent.tenantId,
-        isActive: true,
-      };
+      let services;
       if (specialistId) {
         const specialist = await prisma.specialist.findFirst({
           where: {
@@ -436,25 +434,42 @@ export async function executeTool(
           select: { id: true },
         });
         if (!specialist) return { result: JSON.stringify({ services: [] }) };
-        where['OR'] = [{ specialistId: null }, { specialistId }];
+        services = await getActiveServicesForSpecialist({
+          tenantId: agent.tenantId,
+          specialistId,
+        });
+      } else {
+        services = await prisma.service.findMany({
+          where: { tenantId: agent.tenantId, isActive: true },
+          orderBy: { name: 'asc' },
+        });
       }
 
-      const services = await prisma.service.findMany({
-        where,
-        select: {
-          id: true,
-          name: true,
-          description: true,
-          durationMin: true,
-          priceLabel: true,
-          isGroup: true,
-          capacity: true,
-          specialistId: true,
-        },
-        orderBy: { name: 'asc' },
-      });
-
-      return { result: JSON.stringify({ services }) };
+      return {
+        result: JSON.stringify({
+          services: services.map(
+            ({
+              id,
+              name,
+              description,
+              durationMin,
+              priceLabel,
+              isGroup,
+              capacity,
+              specialistId,
+            }) => ({
+              id,
+              name,
+              description,
+              durationMin,
+              priceLabel,
+              isGroup,
+              capacity,
+              specialistId,
+            }),
+          ),
+        }),
+      };
     }
 
     case 'find_available_slots': {
@@ -526,15 +541,17 @@ export async function executeTool(
       }
 
       if (!serviceId) {
-        const services = await prisma.service.findMany({
-          where: {
+        const services = (
+          await getActiveServicesForSpecialist({
             tenantId: agent.tenantId,
-            isActive: true,
-            OR: [{ specialistId: null }, { specialistId }],
-          },
-          select: { id: true, name: true, durationMin: true, priceLabel: true },
-          orderBy: { name: 'asc' },
-        });
+            specialistId,
+          })
+        ).map(({ id, name, durationMin, priceLabel }) => ({
+          id,
+          name,
+          durationMin,
+          priceLabel,
+        }));
         return {
           result: JSON.stringify({
             error: 'SERVICE_REQUIRED',
@@ -568,15 +585,17 @@ export async function executeTool(
         serviceId,
       });
       if (!bookableService) {
-        const services = await prisma.service.findMany({
-          where: {
+        const services = (
+          await getActiveServicesForSpecialist({
             tenantId: agent.tenantId,
-            isActive: true,
-            OR: [{ specialistId: null }, { specialistId }],
-          },
-          select: { id: true, name: true, durationMin: true, priceLabel: true },
-          orderBy: { name: 'asc' },
-        });
+            specialistId,
+          })
+        ).map(({ id, name, durationMin, priceLabel }) => ({
+          id,
+          name,
+          durationMin,
+          priceLabel,
+        }));
         return {
           result: JSON.stringify({
             error: 'SERVICE_REQUIRED',
