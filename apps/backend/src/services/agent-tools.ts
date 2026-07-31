@@ -157,7 +157,7 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: 'create_appointment_request',
       description:
-        'Create an appointment booking request. Only call after confirming all details with the visitor: name, phone, specialist, service, and time slot.',
+        'Create an appointment booking request. Only call after the visitor explicitly chose or confirmed one exact local date and start time, plus name, phone, specialist, and service. Do not call this tool when the visitor only gave a broad range such as "this week" or asked for help choosing a free time; use find_available_slots first and ask the visitor to pick a slot.',
       parameters: {
         type: 'object',
         properties: {
