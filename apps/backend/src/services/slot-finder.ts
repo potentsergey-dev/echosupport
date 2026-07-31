@@ -17,7 +17,7 @@ export interface AvailableSlot {
 }
 
 const DEFAULT_SLOT_DURATION_MIN = 60;
-const DEFAULT_BUSINESS_TIMEZONE = 'Europe/Minsk';
+export const DEFAULT_BUSINESS_TIMEZONE = 'Europe/Minsk';
 
 interface ZonedDateTimeParts {
   dateKey: string;
@@ -31,7 +31,7 @@ interface LocalDateParts {
   day: number;
 }
 
-function getZonedDateTimeParts(
+export function getZonedDateTimeParts(
   date: Date,
   timeZone = DEFAULT_BUSINESS_TIMEZONE,
 ): ZonedDateTimeParts {
@@ -99,7 +99,7 @@ function getTimeZoneOffsetMs(date: Date, timeZone = DEFAULT_BUSINESS_TIMEZONE): 
   return asUtc - date.getTime();
 }
 
-function zonedDateTimeToUtc(
+export function zonedDateTimeToUtc(
   dateKey: string,
   minutes: number,
   timeZone = DEFAULT_BUSINESS_TIMEZONE,
@@ -110,6 +110,58 @@ function zonedDateTimeToUtc(
   const localAsUtc = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
   const first = new Date(localAsUtc - getTimeZoneOffsetMs(new Date(localAsUtc), timeZone));
   return new Date(localAsUtc - getTimeZoneOffsetMs(first, timeZone));
+}
+
+function pad2(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+export function formatBusinessDateTime(date: Date, timeZone = DEFAULT_BUSINESS_TIMEZONE): string {
+  const parts = getZonedDateTimeParts(date, timeZone);
+  const hour = Math.floor(parts.minutes / 60);
+  const minute = parts.minutes % 60;
+  return `${parts.dateKey} ${pad2(hour)}:${pad2(minute)}`;
+}
+
+export function formatAvailableSlotForBusinessTime(
+  slot: AvailableSlot,
+  timeZone = DEFAULT_BUSINESS_TIMEZONE,
+) {
+  const startsAt = new Date(slot.startsAt);
+  const endsAt = new Date(slot.endsAt);
+  const start = getZonedDateTimeParts(startsAt, timeZone);
+  const end = getZonedDateTimeParts(endsAt, timeZone);
+  const startHour = Math.floor(start.minutes / 60);
+  const startMinute = start.minutes % 60;
+  const endHour = Math.floor(end.minutes / 60);
+  const endMinute = end.minutes % 60;
+  const startsAtLocal = `${start.dateKey} ${pad2(startHour)}:${pad2(startMinute)}`;
+  const endsAtLocal = `${end.dateKey} ${pad2(endHour)}:${pad2(endMinute)}`;
+
+  return {
+    startsAtLocal,
+    endsAtLocal,
+    localDate: start.dateKey,
+    localStartTime: `${pad2(startHour)}:${pad2(startMinute)}`,
+    localEndTime: `${pad2(endHour)}:${pad2(endMinute)}`,
+    display: `${start.dateKey} ${pad2(startHour)}:${pad2(startMinute)}–${pad2(endHour)}:${pad2(endMinute)}`,
+    timeZone,
+    startsAtUtc: slot.startsAt,
+    endsAtUtc: slot.endsAt,
+    bookingValue: startsAtLocal,
+  };
+}
+
+export function parseBusinessDateTime(value: string, timeZone = DEFAULT_BUSINESS_TIMEZONE): Date {
+  const trimmed = value.trim();
+  const localMatch = /^(\d{4}-\d{2}-\d{2})[ T](\d{2}):(\d{2})(?::\d{2}(?:\.\d{1,3})?)?$/.exec(
+    trimmed,
+  );
+  if (localMatch) {
+    const [, dateKey, hh, mm] = localMatch;
+    return zonedDateTimeToUtc(dateKey!, Number(hh) * 60 + Number(mm), timeZone);
+  }
+  return new Date(trimmed);
 }
 
 function parseSearchBoundary(

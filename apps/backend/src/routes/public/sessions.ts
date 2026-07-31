@@ -13,7 +13,12 @@ import { transcribe as transcribeWhisper } from '../../adapters/stt/whisper.js';
 import { env } from '../../config/env.js';
 import { checkMessageLimit, checkSessionLimit } from '../../services/visitor-rate-limit.js';
 import { AGENT_TOOLS, executeTool } from '../../services/agent-tools.js';
-import { isBusinessHoursNow, getOutOfHoursMessage } from '../../services/business-hours.js';
+import {
+  formatBusinessNow,
+  getBusinessTimezone,
+  isBusinessHoursNow,
+  getOutOfHoursMessage,
+} from '../../services/business-hours.js';
 import { csatSubmissionSchema } from '../../services/csat.js';
 import { summarizeError } from '../../services/error-sanitizer.js';
 import { isOriginAllowed } from '../../services/origin-policy.js';
@@ -405,12 +410,11 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
         // Get business hours context for system prompt
         const inHours = await isBusinessHoursNow(agent.id);
         const outOfHoursMsg = inHours ? null : await getOutOfHoursMessage(agent.id);
-        const now = new Intl.DateTimeFormat('en-GB', { timeStyle: 'short', hour12: false }).format(
-          new Date(),
-        );
+        const timeZone = await getBusinessTimezone(agent.id);
+        const now = formatBusinessNow(timeZone);
         const businessHoursContext = inHours
-          ? `Current time: ${now}. Operators are currently available. You may escalate to a human if needed.`
-          : `Current time: ${now}. This is OUTSIDE business hours. ${outOfHoursMsg ?? 'Operators are not available right now.'}. If the user needs human assistance, inform them and offer to collect their contact info for a callback.`;
+          ? `Current business date and time: ${now}. Operators are currently available. Use this date/time as the source of truth for relative dates such as today, tomorrow, and this week. Do not infer the current date from model memory. You may escalate to a human if needed.`
+          : `Current business date and time: ${now}. This is OUTSIDE business hours. Use this date/time as the source of truth for relative dates such as today, tomorrow, and this week. Do not infer the current date from model memory. ${outOfHoursMsg ?? 'Operators are not available right now.'}. If the user needs human assistance, inform them and offer to collect their contact info for a callback.`;
 
         // Build prompt
         const messages = buildMessages({

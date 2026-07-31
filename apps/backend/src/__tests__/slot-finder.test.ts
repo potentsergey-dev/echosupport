@@ -11,9 +11,11 @@ vi.mock('../db/prisma.js', () => ({
 
 import { prisma } from '../db/prisma.js';
 import {
+  formatAvailableSlotForBusinessTime,
   findAvailableSlots,
   isSlotAvailable,
   isSlotWithinWorkingHours,
+  parseBusinessDateTime,
 } from '../services/slot-finder.js';
 
 describe('slot finder', () => {
@@ -95,6 +97,33 @@ describe('slot finder', () => {
     expect(slots[0]?.startsAt).toBe('2026-08-06T06:00:00.000Z');
     expect(slots[0]?.endsAt).toBe('2026-08-06T07:30:00.000Z');
   });
+
+  it('formats UTC slots as local business times for LLM tools', () => {
+    const slot = formatAvailableSlotForBusinessTime({
+      startsAt: '2026-08-04T09:00:00.000Z',
+      endsAt: '2026-08-04T10:30:00.000Z',
+    });
+
+    expect(slot).toMatchObject({
+      startsAtLocal: '2026-08-04 12:00',
+      endsAtLocal: '2026-08-04 13:30',
+      localDate: '2026-08-04',
+      localStartTime: '12:00',
+      localEndTime: '13:30',
+      bookingValue: '2026-08-04 12:00',
+      timeZone: 'Europe/Minsk',
+    });
+  });
+
+  it('parses local business datetimes into UTC instants', () => {
+    expect(parseBusinessDateTime('2026-08-04 12:00').toISOString()).toBe(
+      '2026-08-04T09:00:00.000Z',
+    );
+    expect(parseBusinessDateTime('2026-08-04T12:00').toISOString()).toBe(
+      '2026-08-04T09:00:00.000Z',
+    );
+  });
+
   it('checks conflicts and working-hour boundaries', async () => {
     vi.mocked(prisma.appointment.findFirst).mockResolvedValueOnce(null);
     await expect(
