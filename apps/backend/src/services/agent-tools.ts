@@ -101,7 +101,8 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: 'function',
     function: {
       name: 'list_specialists',
-      description: 'Get the list of available specialists for booking at this clinic/business.',
+      description:
+        'Get the list of available specialists for booking at this clinic/business. Use this when resolving a named specialist, including inflected names in the conversation such as Russian "к Еве" for "Ева". If a name or surname can refer to multiple specialists, ask the visitor to choose by full name/role.',
       parameters: { type: 'object', properties: {} },
     },
   },
@@ -110,7 +111,7 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: 'list_services',
       description:
-        'Get the list of services available for booking, optionally filtered by specialist.',
+        'Get the list of services available for booking, optionally filtered by specialist. Use this after the visitor changes specialist without naming a service, or when the previously selected service may not fit the new specialist.',
       parameters: {
         type: 'object',
         properties: {
