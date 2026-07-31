@@ -8,7 +8,12 @@ vi.mock('../db/prisma.js', () => ({
 }));
 
 import { prisma } from '../db/prisma.js';
-import { getOutOfHoursMessage, isBusinessHoursNow } from '../services/business-hours.js';
+import {
+  formatBusinessNow,
+  getBusinessTimezone,
+  getOutOfHoursMessage,
+  isBusinessHoursNow,
+} from '../services/business-hours.js';
 
 describe('business hours', () => {
   beforeEach(() => {
@@ -67,5 +72,16 @@ describe('business hours', () => {
       outOfHoursMessage: 'Back tomorrow',
     } as never);
     await expect(getOutOfHoursMessage('agent-1')).resolves.toBe('Back tomorrow');
+  });
+
+  it('returns the configured timezone and formats the current business date', async () => {
+    vi.mocked(prisma.businessHours.findUnique).mockResolvedValueOnce({
+      timezone: 'Europe/Minsk',
+    } as never);
+
+    await expect(getBusinessTimezone('agent-1')).resolves.toBe('Europe/Minsk');
+    expect(formatBusinessNow('Europe/Minsk', new Date('2026-07-31T09:00:00.000Z'))).toContain(
+      'Friday, 31 July 2026 at 12:00; local date key: 2026-07-31; timezone: Europe/Minsk',
+    );
   });
 });

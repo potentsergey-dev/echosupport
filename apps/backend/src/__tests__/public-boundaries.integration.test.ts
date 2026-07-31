@@ -30,6 +30,12 @@ vi.mock('../adapters/stt/whisper.js', () => ({
 vi.mock('../services/business-hours.js', () => ({
   isBusinessHoursNow: vi.fn().mockResolvedValue(true),
   getOutOfHoursMessage: vi.fn().mockResolvedValue(null),
+  getBusinessTimezone: vi.fn().mockResolvedValue('Europe/Minsk'),
+  formatBusinessNow: vi
+    .fn()
+    .mockReturnValue(
+      'Friday, 31 July 2026 at 12:00; local date key: 2026-07-31; timezone: Europe/Minsk',
+    ),
 }));
 
 vi.mock('../services/conversation-summarizer.js', () => ({

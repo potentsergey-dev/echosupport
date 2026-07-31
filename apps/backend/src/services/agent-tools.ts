@@ -15,9 +15,16 @@
 
 import type { OpenAI } from 'openai';
 import { prisma } from '../db/prisma.js';
-import { isBusinessHoursNow, getOutOfHoursMessage } from './business-hours.js';
+import { isBusinessHoursNow, getOutOfHoursMessage, getBusinessTimezone } from './business-hours.js';
 import { publishToOperators } from './realtime-hub.js';
-import { findAvailableSlots, isSlotWithinWorkingHours } from './slot-finder.js';
+import {
+  findAvailableSlots,
+  formatAvailableSlotForBusinessTime,
+  formatBusinessDateTime,
+  getZonedDateTimeParts,
+  isSlotWithinWorkingHours,
+  parseBusinessDateTime,
+} from './slot-finder.js';
 import { normalizeQuickReplies } from './quick-replies.js';
 import { assertSlotCanAcceptAppointment, getBookableServiceForSpecialist } from './booking.js';
 
@@ -120,7 +127,7 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: 'find_available_slots',
       description:
-        'Find available appointment time slots for a specialist. Returns a list of free slots.',
+        'Find available appointment time slots for a specialist. Returns free slots in the business local timezone plus UTC audit fields.',
       parameters: {
         type: 'object',
         properties: {
@@ -134,11 +141,11 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           },
           date_from: {
             type: 'string',
-            description: 'Start of the search window (ISO date string, e.g. "2026-06-01").',
+            description: 'Start of the search window as a local business date, e.g. "2026-06-01".',
           },
           date_to: {
             type: 'string',
-            description: 'End of the search window (ISO date string, e.g. "2026-06-07").',
+            description: 'End of the search window as a local business date, e.g. "2026-06-07".',
           },
         },
         required: ['specialist_id', 'date_from', 'date_to'],
@@ -156,7 +163,11 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
         properties: {
           specialist_id: { type: 'string', description: 'Specialist ID.' },
           service_id: { type: 'string', description: 'Service ID (optional).' },
-          starts_at: { type: 'string', description: 'Appointment start time (ISO string).' },
+          starts_at: {
+            type: 'string',
+            description:
+              'Appointment start in business local time, preferably the bookingValue returned by find_available_slots, e.g. "2026-08-04 12:00". ISO with timezone is also accepted.',
+          },
           name: { type: 'string', description: "Visitor's full name (required, min 2 chars)." },
           phone: { type: 'string', description: "Visitor's phone number (required)." },
           email: { type: 'string', description: "Visitor's email (optional)." },
@@ -439,10 +450,27 @@ export async function executeTool(
       // Set to end of day
       to.setHours(23, 59, 59, 999);
 
-      const slots = await findAvailableSlots(specialistId, bookableService.id, from, to);
+      const timeZone = await getBusinessTimezone(ctx.agentId);
+      const dateToForSearch = to > maxTo ? getZonedDateTimeParts(maxTo, timeZone).dateKey : dateTo;
+      const slots = await findAvailableSlots(
+        specialistId,
+        bookableService.id,
+        dateFrom,
+        dateToForSearch,
+        timeZone,
+      );
 
       // Return at most 20 slots to keep context manageable
-      return { result: JSON.stringify({ slots: slots.slice(0, 20) }) };
+      return {
+        result: JSON.stringify({
+          timeZone,
+          instruction:
+            'These slots are already converted to local business time. Show display/local times to the visitor. Use bookingValue as starts_at when creating an appointment.',
+          slots: slots
+            .slice(0, 20)
+            .map((slot) => formatAvailableSlotForBusinessTime(slot, timeZone)),
+        }),
+      };
     }
 
     case 'create_appointment_request': {
@@ -466,7 +494,8 @@ export async function executeTool(
         return { result: JSON.stringify({ success: false, error: 'Invalid phone number format' }) };
       }
 
-      const startsAt = new Date(startsAtStr);
+      const timeZone = await getBusinessTimezone(ctx.agentId);
+      const startsAt = parseBusinessDateTime(startsAtStr, timeZone);
       if (isNaN(startsAt.getTime())) {
         return { result: JSON.stringify({ success: false, error: 'Invalid starts_at datetime' }) };
       }
@@ -513,7 +542,7 @@ export async function executeTool(
       const endsAt = new Date(startsAt.getTime() + bookableService.durationMin * 60 * 1000);
 
       // Validate slot is within specialist's working hours
-      const withinHours = await isSlotWithinWorkingHours(specialistId, startsAt, endsAt);
+      const withinHours = await isSlotWithinWorkingHours(specialistId, startsAt, endsAt, timeZone);
       if (!withinHours) {
         return {
           result: JSON.stringify({
@@ -614,7 +643,7 @@ export async function executeTool(
         result: JSON.stringify({
           success: true,
           appointmentId: appointment.id,
-          message: `Appointment booked for ${name} on ${startsAt.toLocaleString('ru-RU')}. Status: PENDING — awaiting operator confirmation.`,
+          message: `Appointment booked for ${name} on ${formatBusinessDateTime(startsAt, timeZone)} (${timeZone}). Status: PENDING — awaiting operator confirmation.`,
         }),
       };
     }

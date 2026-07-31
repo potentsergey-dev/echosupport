@@ -4,6 +4,7 @@
  */
 
 import { prisma } from '../db/prisma.js';
+import { DEFAULT_BUSINESS_TIMEZONE, getZonedDateTimeParts } from './slot-finder.js';
 
 interface ScheduleEntry {
   dayOfWeek: number; // 0=Sunday..6=Saturday
@@ -21,7 +22,7 @@ export async function isBusinessHoursNow(agentId: string): Promise<boolean> {
   const bh = await prisma.businessHours.findUnique({ where: { agentId } });
   if (!bh || !bh.enabled) return true; // no config or disabled → always "in hours"
 
-  const tz = bh.timezone ?? 'Europe/Minsk';
+  const tz = bh.timezone ?? DEFAULT_BUSINESS_TIMEZONE;
   const now = new Date();
 
   // Get current date/time in agent's timezone
@@ -67,6 +68,26 @@ export async function isBusinessHoursNow(agentId: string): Promise<boolean> {
   }
 
   return false;
+}
+
+export async function getBusinessTimezone(agentId: string): Promise<string> {
+  const bh = await prisma.businessHours.findUnique({ where: { agentId } });
+  return bh?.timezone ?? DEFAULT_BUSINESS_TIMEZONE;
+}
+
+export function formatBusinessNow(timeZone = DEFAULT_BUSINESS_TIMEZONE, now = new Date()): string {
+  const zoned = getZonedDateTimeParts(now, timeZone);
+  const human = new Intl.DateTimeFormat('en-GB', {
+    timeZone,
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).format(now);
+  return `${human}; local date key: ${zoned.dateKey}; timezone: ${timeZone}`;
 }
 
 /** Returns the out-of-hours message for an agent, or null if not configured. */
