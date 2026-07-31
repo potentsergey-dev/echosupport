@@ -1,6 +1,10 @@
 /* eslint-disable @typescript-eslint/unbound-method */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../services/specialist-services.js', () => ({
+  getActiveServicesForSpecialist: vi.fn(),
+}));
+
 vi.mock('../db/prisma.js', () => ({
   prisma: {
     service: { findFirst: vi.fn() },
@@ -9,6 +13,7 @@ vi.mock('../db/prisma.js', () => ({
 }));
 
 import { prisma } from '../db/prisma.js';
+import { getActiveServicesForSpecialist } from '../services/specialist-services.js';
 import {
   assertSlotCanAcceptAppointment,
   getBookableServiceForSpecialist,
@@ -43,12 +48,14 @@ describe('booking helpers', () => {
   });
 
   it('looks up services within the tenant and selected specialist compatibility', async () => {
-    vi.mocked(prisma.service.findFirst).mockResolvedValueOnce({
-      id: 'service-1',
-      durationMin: 45,
-      isGroup: true,
-      capacity: 5,
-    } as never);
+    vi.mocked(getActiveServicesForSpecialist).mockResolvedValueOnce([
+      {
+        id: 'service-1',
+        durationMin: 45,
+        isGroup: true,
+        capacity: 5,
+      },
+    ] as never);
 
     await expect(
       getBookableServiceForSpecialist({
@@ -58,14 +65,9 @@ describe('booking helpers', () => {
       }),
     ).resolves.toEqual({ id: 'service-1', durationMin: 45, isGroup: true, capacity: 5 });
 
-    expect(prisma.service.findFirst).toHaveBeenCalledWith({
-      where: {
-        id: 'service-1',
-        tenantId: 'tenant-1',
-        isActive: true,
-        OR: [{ specialistId: null }, { specialistId: 'specialist-1' }],
-      },
-      select: { id: true, durationMin: true, isGroup: true, capacity: true },
+    expect(getActiveServicesForSpecialist).toHaveBeenCalledWith({
+      tenantId: 'tenant-1',
+      specialistId: 'specialist-1',
     });
   });
 
@@ -77,7 +79,7 @@ describe('booking helpers', () => {
       }),
     ).resolves.toEqual({ id: null, durationMin: 60, isGroup: false, capacity: 1 });
 
-    expect(prisma.service.findFirst).not.toHaveBeenCalled();
+    expect(getActiveServicesForSpecialist).not.toHaveBeenCalled();
   });
 
   it('allows group appointments until the configured capacity is reached', async () => {
