@@ -11,8 +11,33 @@ vi.mock('../db/prisma.js', () => ({
 vi.mock('../services/realtime-hub.js', () => ({
   publishToOperators: vi.fn(),
 }));
+vi.mock('../services/specialist-services.js', () => ({
+  getActiveServicesForSpecialist: vi.fn(),
+}));
+vi.mock('../services/slot-finder.js', () => ({
+  findAvailableSlots: vi.fn(),
+  formatAvailableSlotForBusinessTime: vi.fn((slot: { startsAt: string; endsAt: string }) => ({
+    localDate: '2026-08-04',
+    localStartTime: '10:00',
+    localEndTime: '11:00',
+    bookingValue: '2026-08-04 10:00',
+    display: '2026-08-04 10:00–11:00',
+    ...slot,
+  })),
+  formatBusinessDateTime: vi.fn(),
+  getZonedDateTimeParts: vi.fn(),
+  isSlotWithinWorkingHours: vi.fn(),
+  parseBusinessDateTime: vi.fn(),
+}));
+vi.mock('../services/business-hours.js', () => ({
+  getBusinessTimezone: vi.fn().mockResolvedValue('Europe/Minsk'),
+  getOutOfHoursMessage: vi.fn(),
+  isBusinessHoursNow: vi.fn(),
+}));
 
 import { prisma } from '../db/prisma.js';
+import { findAvailableSlots } from '../services/slot-finder.js';
+import { getActiveServicesForSpecialist } from '../services/specialist-services.js';
 import { AGENT_TOOLS, executeTool } from '../services/agent-tools.js';
 
 describe('agent tools', () => {
@@ -70,4 +95,45 @@ describe('agent tools', () => {
       'appointments must not be created without a service',
     );
   });
+});
+it('finds slots for every compatible specialist when only service and date are given', async () => {
+  vi.mocked(prisma.agent.findUnique).mockResolvedValueOnce({ tenantId: 'tenant-1' } as never);
+  vi.mocked(prisma.specialist.findMany).mockResolvedValueOnce([
+    { id: 'anna', name: 'Анна Левина', role: 'Колорист' },
+    { id: 'maria', name: 'Мария Соколова', role: 'Колорист' },
+  ] as never);
+  vi.mocked(getActiveServicesForSpecialist)
+    .mockResolvedValueOnce([
+      { id: 'dimensional-color', name: 'Dimensional color', isGroup: false, capacity: 1 },
+    ] as never)
+    .mockResolvedValueOnce([
+      { id: 'dimensional-color', name: 'Dimensional color', isGroup: false, capacity: 1 },
+    ] as never);
+  vi.mocked(findAvailableSlots)
+    .mockResolvedValueOnce([
+      { startsAt: '2026-08-04T07:00:00.000Z', endsAt: '2026-08-04T08:00:00.000Z' },
+    ])
+    .mockResolvedValueOnce([
+      { startsAt: '2026-08-04T10:00:00.000Z', endsAt: '2026-08-04T11:00:00.000Z' },
+    ]);
+  const toolResult = await executeTool(
+    'find_available_slots',
+    { service_name: 'Dimensional color', date_from: '2026-08-04', date_to: '2026-08-04' },
+    { sessionId: 'session-1', agentId: 'agent-1', tenantId: 'tenant-1' },
+  );
+  const payload = JSON.parse(toolResult.result) as {
+    specialists: Array<{ specialist: { name: string }; slots: Array<{ startsAt: string }> }>;
+  };
+  expect(payload.specialists.map((entry) => entry.specialist.name)).toEqual([
+    'Анна Левина',
+    'Мария Соколова',
+  ]);
+  expect(payload.specialists.flatMap((entry) => entry.slots)).toHaveLength(2);
+  expect(findAvailableSlots).toHaveBeenCalledWith(
+    'anna',
+    'dimensional-color',
+    '2026-08-04',
+    '2026-08-04',
+    'Europe/Minsk',
+  );
 });
