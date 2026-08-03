@@ -31,6 +31,7 @@ import {
   APPOINTMENT_STATUSES,
   assertSlotCanAcceptAppointment,
   getBookableServiceForSpecialist,
+  getAppointmentParticipantCount,
 } from '../../services/booking.js';
 import { summarizeError } from '../../services/error-sanitizer.js';
 
@@ -637,7 +638,9 @@ Only output the reply text — no meta-commentary.`;
       >,
       include: {
         specialist: { select: { id: true, name: true, role: true } },
-        service: { select: { id: true, name: true, durationMin: true } },
+        service: {
+          select: { id: true, name: true, durationMin: true, isGroup: true, capacity: true },
+        },
       },
       orderBy: { startsAt: 'asc' },
       take: 200,
@@ -742,7 +745,7 @@ Only output the reply text — no meta-commentary.`;
           },
           include: {
             specialist: { select: { id: true, name: true, role: true } },
-            service: { select: { id: true, name: true } },
+            service: { select: { id: true, name: true, isGroup: true, capacity: true } },
           },
         });
       })
@@ -778,7 +781,7 @@ Only output the reply text — no meta-commentary.`;
       data: { status: 'CONFIRMED' },
       include: {
         specialist: { select: { id: true, name: true } },
-        service: { select: { id: true, name: true } },
+        service: { select: { id: true, name: true, isGroup: true, capacity: true } },
       },
     });
 
@@ -866,7 +869,7 @@ Only output the reply text — no meta-commentary.`;
         data: { startsAt, endsAt, status: 'PENDING' },
         include: {
           specialist: { select: { id: true, name: true } },
-          service: { select: { id: true, name: true } },
+          service: { select: { id: true, name: true, isGroup: true, capacity: true } },
         },
       });
 
@@ -890,11 +893,35 @@ Only output the reply text — no meta-commentary.`;
 
     const appt = await prisma.appointment.findFirst({
       where: { id, tenantId: req.user.tenantId },
-      select: { id: true },
+      include: {
+        service: { select: { id: true, isGroup: true, capacity: true } },
+      },
     });
     if (!appt) return reply.status(404).send({ error: 'Appointment not found' });
 
     const { notes, visitorName, visitorPhone, visitorEmail, status } = result.data;
+    if (notes !== undefined && appt.service?.isGroup) {
+      try {
+        await assertSlotCanAcceptAppointment({
+          specialistId: appt.specialistId,
+          serviceId: appt.service.id,
+          startsAt: appt.startsAt,
+          endsAt: appt.endsAt,
+          isGroup: true,
+          capacity: appt.service.capacity,
+          requestedParticipants: getAppointmentParticipantCount(notes),
+          excludeAppointmentId: id,
+        });
+      } catch (err) {
+        if (err instanceof Error && err.message === 'SLOT_FULL') {
+          return reply.status(409).send({
+            error:
+              'There are not enough free seats in this group session. Reduce participants or choose another time.',
+          });
+        }
+        throw err;
+      }
+    }
     const apptUpdateData: Record<string, unknown> = {};
     if (notes !== undefined) apptUpdateData['notes'] = notes;
     if (visitorName !== undefined) apptUpdateData['visitorName'] = visitorName;
@@ -907,7 +934,7 @@ Only output the reply text — no meta-commentary.`;
       data: apptUpdateData,
       include: {
         specialist: { select: { id: true, name: true } },
-        service: { select: { id: true, name: true } },
+        service: { select: { id: true, name: true, isGroup: true, capacity: true } },
       },
     });
     return reply.send(updated);

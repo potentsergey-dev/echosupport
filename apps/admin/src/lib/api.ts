@@ -27,6 +27,8 @@ function translateApiError(message: string): string {
       'Это время уже занято. Выберите другой свободный слот.',
     'This group session is already full. Please choose another time.':
       'Групповое занятие на это время уже заполнено. Выберите другое время.',
+    'There are not enough free seats in this group session. Reduce participants or choose another time.':
+      'В этом групповом слоте недостаточно свободных мест. Уменьшите количество участников или выберите другое время.',
     'Appointment time must be in the future': 'Время записи должно быть в будущем.',
     'Specialist not found': 'Специалист не найден или неактивен.',
     'Service not found for this specialist': 'Эта услуга недоступна для выбранного специалиста.',
