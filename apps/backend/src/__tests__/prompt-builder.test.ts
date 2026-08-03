@@ -113,7 +113,27 @@ describe('prompt builder', () => {
     const systemPrompt = String(messages[0]?.content ?? '');
     expect(systemPrompt).toContain('Every slot returned by find_available_slots is authoritative');
     expect(systemPrompt).toContain('including group services');
-    expect(systemPrompt).toContain('immediately call create_appointment_request');
+    expect(systemPrompt).toContain(
+      'call create_appointment_request using contact details already supplied earlier',
+    );
     expect(systemPrompt).toContain('override conflicting general Knowledge Base text');
+  });
+  it('guides group booking with participant count and neutral slot wording', () => {
+    const messages = buildMessages({
+      agentSystemPrompt: 'You are a salon assistant.',
+      chunks: [],
+      history: [],
+      summary: null,
+      userText: 'Могу я записаться к Еве на Face practice?',
+    });
+
+    const systemPrompt = String(messages[0]?.content ?? '');
+    expect(systemPrompt).toContain('do not start with apologetic phrases like "К сожалению"');
+    expect(systemPrompt).toContain(
+      'ask whether the visitor is booking only themselves or several people',
+    );
+    expect(systemPrompt).toContain('pass the total count as group_participants');
+    expect(systemPrompt).toContain('requested group_participants is greater than remainingSeats');
+    expect(systemPrompt).toContain('Every appointment must include the selected service');
   });
 });

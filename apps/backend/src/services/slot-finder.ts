@@ -10,10 +10,12 @@
  */
 
 import { prisma } from '../db/prisma.js';
+import { getAppointmentParticipantCount } from './booking.js';
 
 export interface AvailableSlot {
   startsAt: string; // ISO string
   endsAt: string; // ISO string
+  remainingSeats?: number;
 }
 
 const DEFAULT_SLOT_DURATION_MIN = 60;
@@ -155,6 +157,7 @@ export function formatAvailableSlotForBusinessTime(
     startsAtUtc: slot.startsAt,
     endsAtUtc: slot.endsAt,
     bookingValue: startsAtLocal,
+    ...(slot.remainingSeats !== undefined ? { remainingSeats: slot.remainingSeats } : {}),
   };
 }
 
@@ -229,7 +232,7 @@ export async function findAvailableSlots(
       startsAt: { lt: to },
       endsAt: { gt: from },
     },
-    select: { serviceId: true, startsAt: true, endsAt: true },
+    select: { serviceId: true, startsAt: true, endsAt: true, notes: true },
   });
 
   // Build blocked intervals
@@ -237,6 +240,7 @@ export async function findAvailableSlots(
     serviceId: a.serviceId,
     from: a.startsAt.getTime(),
     to: a.endsAt.getTime(),
+    participantCount: getAppointmentParticipantCount(a.notes),
   }));
 
   const slots: AvailableSlot[] = [];
@@ -276,15 +280,20 @@ export async function findAvailableSlots(
             b.from === slotStart &&
             b.to === slotEnd,
         );
+        const occupiedSeats = sameGroupSlot.reduce(
+          (total, appointment) => total + appointment.participantCount,
+          0,
+        );
+        const remainingSeats = Math.max(1, capacity) - occupiedSeats;
         const hasBlockingOverlap = isGroup
-          ? overlapping.length !== sameGroupSlot.length ||
-            sameGroupSlot.length >= Math.max(1, capacity)
+          ? overlapping.length !== sameGroupSlot.length || remainingSeats <= 0
           : overlapping.length > 0;
 
         if (!hasBlockingOverlap) {
           slots.push({
             startsAt: new Date(slotStart).toISOString(),
             endsAt: new Date(slotEnd).toISOString(),
+            ...(isGroup ? { remainingSeats } : {}),
           });
         }
 

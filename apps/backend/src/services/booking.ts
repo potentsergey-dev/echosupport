@@ -40,9 +40,16 @@ export function hasOverlappingWorkingRanges(entries: WorkingRange[]): boolean {
 
 export interface BookableServiceResult {
   id: string | null;
+  name?: string;
   durationMin: number;
   isGroup: boolean;
   capacity: number;
+}
+
+export function getAppointmentParticipantCount(notes: string | null | undefined): number {
+  const match = /Group participants:\s*(\d+)/i.exec(notes ?? '');
+  const count = match ? Number(match[1]) : 1;
+  return Number.isInteger(count) && count > 0 ? count : 1;
 }
 
 export type SlotAvailabilityError = 'SLOT_TAKEN' | 'SLOT_FULL';
@@ -63,6 +70,7 @@ export async function getBookableServiceForSpecialist({
   if (!service) return null;
   return {
     id: service.id,
+    name: service.name,
     durationMin: service.durationMin,
     isGroup: service.isGroup,
     capacity: service.capacity,
@@ -76,6 +84,7 @@ export async function assertSlotCanAcceptAppointment({
   endsAt,
   isGroup,
   capacity,
+  requestedParticipants = 1,
   excludeAppointmentId,
   db = prisma,
 }: {
@@ -85,6 +94,7 @@ export async function assertSlotCanAcceptAppointment({
   endsAt: Date;
   isGroup: boolean;
   capacity: number;
+  requestedParticipants?: number;
   excludeAppointmentId?: string;
   db?: Pick<typeof prisma, 'appointment'>;
 }): Promise<void> {
@@ -96,7 +106,7 @@ export async function assertSlotCanAcceptAppointment({
       startsAt: { lt: endsAt },
       endsAt: { gt: startsAt },
     },
-    select: { id: true, serviceId: true, startsAt: true, endsAt: true },
+    select: { id: true, serviceId: true, startsAt: true, endsAt: true, notes: true },
   });
 
   if (!isGroup || !serviceId) {
@@ -113,6 +123,9 @@ export async function assertSlotCanAcceptAppointment({
     throw new Error('SLOT_TAKEN');
   }
 
-  const occupiedSeats = overlappingAppointments.filter(isSameGroupSlot).length;
-  if (occupiedSeats >= Math.max(1, capacity)) throw new Error('SLOT_FULL');
+  const occupiedSeats = overlappingAppointments
+    .filter(isSameGroupSlot)
+    .reduce((total, appointment) => total + getAppointmentParticipantCount(appointment.notes), 0);
+  const requestedSeats = Math.max(1, requestedParticipants);
+  if (occupiedSeats + requestedSeats > Math.max(1, capacity)) throw new Error('SLOT_FULL');
 }

@@ -63,16 +63,19 @@ describe('slot finder', () => {
     vi.mocked(prisma.appointment.findMany).mockResolvedValue([
       {
         serviceId: 'service-1',
+        notes: null,
         startsAt: new Date('2026-06-29T06:00:00.000Z'),
         endsAt: new Date('2026-06-29T07:00:00.000Z'),
       },
       {
         serviceId: 'service-1',
+        notes: null,
         startsAt: new Date('2026-06-29T07:00:00.000Z'),
         endsAt: new Date('2026-06-29T08:00:00.000Z'),
       },
       {
         serviceId: 'service-1',
+        notes: null,
         startsAt: new Date('2026-06-29T07:00:00.000Z'),
         endsAt: new Date('2026-06-29T08:00:00.000Z'),
       },
@@ -82,6 +85,32 @@ describe('slot finder', () => {
 
     expect(slots).toHaveLength(1);
     expect(slots[0]!.startsAt).toBe('2026-06-29T06:00:00.000Z');
+    expect(slots[0]!.remainingSeats).toBe(1);
+  });
+
+  it('reports remaining seats for group slots using participant notes', async () => {
+    vi.mocked(prisma.specialist.findUnique).mockResolvedValue({
+      isActive: true,
+      workingHours: [{ dayOfWeek: 1, fromMinutes: 9 * 60, toMinutes: 10 * 60 }],
+    } as never);
+    vi.mocked(prisma.service.findUnique).mockResolvedValue({
+      durationMin: 60,
+      isGroup: true,
+      capacity: 6,
+    } as never);
+    vi.mocked(prisma.appointment.findMany).mockResolvedValue([
+      {
+        serviceId: 'service-1',
+        notes: 'Group participants: 4',
+        startsAt: new Date('2026-06-29T06:00:00.000Z'),
+        endsAt: new Date('2026-06-29T07:00:00.000Z'),
+      },
+    ] as never);
+
+    const slots = await findAvailableSlots('specialist-1', 'service-1', '2026-06-29', '2026-06-29');
+
+    expect(slots).toHaveLength(1);
+    expect(slots[0]!.remainingSeats).toBe(2);
   });
 
   it('generates available slots in the business timezone instead of server UTC', async () => {

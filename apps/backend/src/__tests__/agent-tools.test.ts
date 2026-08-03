@@ -62,8 +62,12 @@ describe('agent tools', () => {
 
     expect(properties).toHaveProperty('specialist_name');
     expect(properties).toHaveProperty('service_name');
+    expect(properties).toHaveProperty('group_participants');
     expect(createTool?.type === 'function' ? createTool.function.description : '').toContain(
       'the backend will resolve them',
+    );
+    expect(createTool?.type === 'function' ? createTool.function.description : '').toContain(
+      'appointments must not be created without a service',
     );
   });
 });
