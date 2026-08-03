@@ -66,6 +66,14 @@ function buildSpecialistMatchingHints(name: string): string[] {
   ]);
 }
 
+function normalizeBookingLookup(value: string): string {
+  return value
+    .toLocaleLowerCase('ru-RU')
+    .replace(/ё/g, 'е')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim();
+}
+
 // ── Tool schemas (OpenAI function-calling format) ─────────────────────────────
 
 export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
@@ -207,12 +215,22 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: 'create_appointment_request',
       description:
-        'Create an appointment booking request, including group-service bookings. Call after the visitor explicitly chose or confirmed one exact local date and start time, plus name, phone, specialist, and service. A group slot returned by find_available_slots is bookable; call this tool and let the backend enforce capacity instead of refusing it. Do not call when the visitor only gave a broad range such as "this week" or asked for help choosing a free time; use find_available_slots first and ask the visitor to pick a slot.',
+        'Create an appointment booking request, including group-service bookings. Call after the visitor explicitly chose or confirmed one exact local date and start time, plus name, phone, specialist, and service. Prefer IDs returned by booking tools, but if an ID is unavailable pass specialist_name and service_name; the backend will resolve them. A group slot returned by find_available_slots is bookable; call this tool and let the backend enforce capacity instead of refusing it. Do not call when the visitor only gave a broad range such as "this week" or asked for help choosing a free time; use find_available_slots first and ask the visitor to pick a slot.',
       parameters: {
         type: 'object',
         properties: {
           specialist_id: { type: 'string', description: 'Specialist ID.' },
+          specialist_name: {
+            type: 'string',
+            description:
+              'Specialist name from the visitor or previous tool result, e.g. "Ева Король", when specialist_id is unavailable or uncertain.',
+          },
           service_id: { type: 'string', description: 'Service ID (optional).' },
+          service_name: {
+            type: 'string',
+            description:
+              'Service name from the visitor or previous tool result, e.g. "Face practice", when service_id is unavailable or uncertain.',
+          },
           starts_at: {
             type: 'string',
             description:
@@ -654,16 +672,25 @@ export async function executeTool(
     }
 
     case 'create_appointment_request': {
-      const specialistId = String(args['specialist_id'] ?? '');
-      const serviceId = args['service_id'] ? String(args['service_id']) : undefined;
+      let specialistId = String(args['specialist_id'] ?? '').trim();
+      const specialistName = String(args['specialist_name'] ?? '').trim();
+      let serviceId = args['service_id'] ? String(args['service_id']).trim() : undefined;
+      const serviceName = String(args['service_name'] ?? '').trim();
       const startsAtStr = String(args['starts_at'] ?? '');
       const name = String(args['name'] ?? '').trim();
       const phone = String(args['phone'] ?? '').trim();
       const email = args['email'] ? String(args['email']).trim() : undefined;
 
       // Validate inputs
-      if (!specialistId)
-        return { result: JSON.stringify({ success: false, error: 'specialist_id required' }) };
+      if (!specialistId && !specialistName)
+        return {
+          result: JSON.stringify({
+            success: false,
+            error: 'specialist_id or specialist_name required',
+            instruction:
+              'Ask the visitor to choose a specialist, or call list_specialists/find_available_slots before creating the appointment.',
+          }),
+        };
       if (!startsAtStr)
         return { result: JSON.stringify({ success: false, error: 'starts_at required' }) };
       if (name.length < 2)
@@ -695,27 +722,93 @@ export async function executeTool(
       });
       if (!agent) return { result: JSON.stringify({ success: false, error: 'Agent not found' }) };
 
-      const specialist = await prisma.specialist.findFirst({
-        where: {
-          id: specialistId,
-          tenantId: agent.tenantId,
-          isActive: true,
-          OR: [{ agentId: null }, { agentId: ctx.agentId }],
-        },
-      });
+      const specialistWhere = {
+        tenantId: agent.tenantId,
+        isActive: true,
+        OR: [{ agentId: null }, { agentId: ctx.agentId }],
+      };
+      let specialist = specialistId
+        ? await prisma.specialist.findFirst({
+            where: {
+              id: specialistId,
+              ...specialistWhere,
+            },
+          })
+        : null;
+      if (!specialist) {
+        const specialistLookup = specialistName || specialistId;
+        const candidates = await prisma.specialist.findMany({
+          where: specialistWhere,
+          select: { id: true, name: true, role: true },
+          orderBy: { name: 'asc' },
+        });
+        const matches = matchSpecialistsByName(
+          specialistLookup,
+          candidates.map((candidate) => ({
+            ...candidate,
+            matchingHints: buildSpecialistMatchingHints(candidate.name),
+          })),
+        );
+        if (matches.length > 1) {
+          return {
+            result: JSON.stringify({
+              success: false,
+              error: 'SPECIALIST_AMBIGUOUS',
+              instruction:
+                'Ask the visitor which specialist they mean. Do not say the selected slot is booked unless appointment creation succeeds.',
+              candidates: matches.map(({ id, name, role }) => ({ id, name, role })),
+            }),
+          };
+        }
+        specialist = matches[0]
+          ? await prisma.specialist.findFirst({
+              where: { id: matches[0].id, ...specialistWhere },
+            })
+          : null;
+        specialistId = specialist?.id ?? '';
+      }
       if (!specialist)
-        return { result: JSON.stringify({ success: false, error: 'Specialist not found' }) };
+        return {
+          result: JSON.stringify({
+            success: false,
+            error: 'Specialist not found',
+            instruction:
+              'Ask the visitor to choose a specialist from list_specialists. Do not say the selected slot is booked unless appointment creation succeeds.',
+          }),
+        };
 
-      const bookableService = await getBookableServiceForSpecialist({
+      let bookableService = await getBookableServiceForSpecialist({
         tenantId: agent.tenantId,
         specialistId,
         serviceId,
       });
+      if (!bookableService && (serviceName || serviceId)) {
+        const serviceLookup = normalizeBookingLookup(serviceName || serviceId || '');
+        const services = await getActiveServicesForSpecialist({
+          tenantId: agent.tenantId,
+          specialistId,
+        });
+        const matches = services.filter((service) => {
+          const normalizedName = normalizeBookingLookup(service.name);
+          return normalizedName === serviceLookup || normalizedName.includes(serviceLookup);
+        });
+        if (matches.length === 1) {
+          serviceId = matches[0]!.id;
+          bookableService = {
+            id: matches[0]!.id,
+            durationMin: matches[0]!.durationMin,
+            isGroup: matches[0]!.isGroup,
+            capacity: matches[0]!.capacity,
+          };
+        }
+      }
       if (!bookableService) {
         return {
           result: JSON.stringify({
             success: false,
             error: 'Service not found for this specialist',
+            instruction:
+              "Ask the visitor to choose one of this specialist's services. Do not say the selected slot is booked unless appointment creation succeeds.",
           }),
         };
       }
