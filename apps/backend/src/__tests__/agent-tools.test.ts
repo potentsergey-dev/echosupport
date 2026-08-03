@@ -50,4 +50,20 @@ describe('agent tools', () => {
       'A group slot returned by find_available_slots is bookable',
     );
   });
+
+  it('allows appointment creation with specialist and service names when IDs are uncertain', () => {
+    const createTool = AGENT_TOOLS.find(
+      (tool) => tool.type === 'function' && tool.function.name === 'create_appointment_request',
+    );
+    const properties =
+      createTool?.type === 'function'
+        ? (createTool.function.parameters as { properties?: Record<string, unknown> }).properties
+        : undefined;
+
+    expect(properties).toHaveProperty('specialist_name');
+    expect(properties).toHaveProperty('service_name');
+    expect(createTool?.type === 'function' ? createTool.function.description : '').toContain(
+      'the backend will resolve them',
+    );
+  });
 });
