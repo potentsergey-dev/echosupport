@@ -876,9 +876,27 @@ export async function executeTool(
         };
       }
 
-      // Race-condition safe slot check + create in transaction
+      // Race-condition safe slot check + create/update in transaction
+      const participantNotes = bookableService.isGroup
+        ? `Group participants: ${requestedParticipants}`
+        : null;
       const appointment = await prisma
         .$transaction(async (tx) => {
+          const existingGroupAppointment = bookableService.isGroup
+            ? await tx.appointment.findFirst({
+                where: {
+                  tenantId: agent.tenantId,
+                  specialistId,
+                  serviceId: bookableService.id,
+                  startsAt,
+                  endsAt,
+                  status: { in: ['PENDING', 'CONFIRMED'] },
+                  OR: [{ sessionId: ctx.sessionId }, { visitorPhone: phone }],
+                },
+                select: { id: true },
+              })
+            : null;
+
           await assertSlotCanAcceptAppointment({
             specialistId,
             serviceId: bookableService.id,
@@ -887,8 +905,24 @@ export async function executeTool(
             isGroup: bookableService.isGroup,
             capacity: bookableService.capacity,
             requestedParticipants: bookableService.isGroup ? requestedParticipants : 1,
+            ...(existingGroupAppointment
+              ? { excludeAppointmentId: existingGroupAppointment.id }
+              : {}),
             db: tx,
           });
+
+          if (existingGroupAppointment) {
+            return tx.appointment.update({
+              where: { id: existingGroupAppointment.id },
+              data: {
+                visitorName: name,
+                visitorPhone: phone,
+                visitorEmail: email ?? null,
+                notes: participantNotes,
+                status: 'PENDING',
+              },
+            });
+          }
 
           return tx.appointment.create({
             data: {
@@ -904,9 +938,7 @@ export async function executeTool(
               endsAt,
               status: 'PENDING',
               source: 'AGENT',
-              notes: bookableService.isGroup
-                ? `Group participants: ${requestedParticipants}`
-                : null,
+              notes: participantNotes,
             },
           });
         })

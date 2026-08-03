@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { PlusIcon, CheckIcon, XIcon, CalendarIcon } from 'lucide-react';
+import { PlusIcon, CheckIcon, XIcon, CalendarIcon, PencilIcon } from 'lucide-react';
 import {
   listAppointments,
   createAppointment,
   confirmAppointment,
   cancelAppointment,
   rescheduleAppointment,
+  updateAppointment,
   listSpecialists,
   listServices,
 } from '../lib/api';
@@ -142,6 +143,28 @@ function sortAppointments(appointments: Appointment[]): Appointment[] {
   return [...appointments].sort(
     (a, b) => new Date(a.startsAt).getTime() - new Date(b.startsAt).getTime(),
   );
+}
+
+function getGroupParticipants(appt: Appointment): number {
+  if (!appt.service?.isGroup) return 1;
+  const match = /Group participants:\s*(\d+)/i.exec(appt.notes ?? '');
+  const count = match ? Number(match[1]) : 1;
+  return Number.isInteger(count) && count > 0 ? count : 1;
+}
+
+function setGroupParticipantsInNotes(notes: string | null, participants: number): string {
+  const nextLine = `Group participants: ${participants}`;
+  const current = notes?.trim() ?? '';
+  if (/Group participants:\s*\d+/i.test(current)) {
+    return current.replace(/Group participants:\s*\d+/i, nextLine);
+  }
+  return current ? `${nextLine}\n${current}` : nextLine;
+}
+
+function serviceLabel(appt: Appointment): string {
+  const name = appt.service?.name ?? '—';
+  if (!appt.service?.isGroup) return name;
+  return `${name} · ${getGroupParticipants(appt)} чел.`;
 }
 
 // ── Reschedule Modal ──────────────────────────────────────────────────────────
@@ -361,6 +384,112 @@ function CreateAppointmentModal({
   );
 }
 
+// ── Edit Appointment Modal ────────────────────────────────────────────────────
+
+function EditAppointmentModal({
+  appointment,
+  onClose,
+}: {
+  appointment: Appointment;
+  onClose: () => void;
+}) {
+  const { addToast } = useToastContext();
+  const qc = useQueryClient();
+  const isGroup = appointment.service?.isGroup ?? false;
+  const [visitorName, setVisitorName] = useState(appointment.visitorName);
+  const [visitorPhone, setVisitorPhone] = useState(appointment.visitorPhone);
+  const [participants, setParticipants] = useState(getGroupParticipants(appointment));
+  const [notes, setNotes] = useState(appointment.notes ?? '');
+
+  const mutation = useMutation({
+    mutationFn: () =>
+      updateAppointment(appointment.id, {
+        visitorName,
+        visitorPhone,
+        notes: isGroup ? setGroupParticipantsInNotes(notes, participants) : notes,
+      }),
+    onSuccess: () => {
+      addToast('Запись обновлена', 'success');
+      void qc.invalidateQueries({ queryKey: ['appointments'] });
+      void qc.invalidateQueries({ queryKey: ['appointments-schedule'] });
+      onClose();
+    },
+    onError: (err: Error) => {
+      addToast(err.message, 'error');
+    },
+  });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
+        <h2 className="mb-4 text-lg font-semibold text-gray-900">Редактирование записи</h2>
+        <div className="space-y-3">
+          <div className="rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-600">
+            {formatDateTime(appointment.startsAt)} · {appointment.service?.name ?? 'Без услуги'}
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label htmlFor="ea-name">Имя клиента</Label>
+              <Input
+                id="ea-name"
+                value={visitorName}
+                onChange={(e) => setVisitorName(e.target.value)}
+                className="mt-1"
+              />
+            </div>
+            <div>
+              <Label htmlFor="ea-phone">Телефон</Label>
+              <Input
+                id="ea-phone"
+                value={visitorPhone}
+                onChange={(e) => setVisitorPhone(e.target.value)}
+                className="mt-1"
+              />
+            </div>
+          </div>
+          {isGroup && (
+            <div>
+              <Label htmlFor="ea-participants">Количество участников</Label>
+              <Input
+                id="ea-participants"
+                type="number"
+                min={1}
+                max={appointment.service?.capacity ?? 500}
+                value={participants}
+                onChange={(e) => setParticipants(Number(e.target.value))}
+                className="mt-1"
+              />
+              <p className="mt-1 text-xs text-gray-500">
+                Вместимость группы: {appointment.service?.capacity ?? '—'} чел.
+              </p>
+            </div>
+          )}
+          <div>
+            <Label htmlFor="ea-notes">Примечание</Label>
+            <Input
+              id="ea-notes"
+              value={notes}
+              onChange={(e) => setNotes(e.target.value)}
+              className="mt-1"
+            />
+          </div>
+        </div>
+        <div className="mt-6 flex justify-end gap-3">
+          <Button variant="secondary" onClick={onClose}>
+            Отмена
+          </Button>
+          <Button
+            loading={mutation.isPending}
+            disabled={!visitorName.trim() || !visitorPhone.trim() || participants < 1}
+            onClick={() => mutation.mutate()}
+          >
+            Сохранить
+          </Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 // ── Appointment Row ───────────────────────────────────────────────────────────
 
 function AppointmentRow({
@@ -368,11 +497,13 @@ function AppointmentRow({
   onConfirm,
   onCancel,
   onReschedule,
+  onEdit,
 }: {
   appt: Appointment;
   onConfirm: () => void;
   onCancel: () => void;
   onReschedule: () => void;
+  onEdit: () => void;
 }) {
   const canConfirm = appt.status === 'PENDING';
   const canCancel = appt.status === 'PENDING' || appt.status === 'CONFIRMED';
@@ -388,7 +519,7 @@ function AppointmentRow({
         <div className="text-xs text-gray-500">{appt.visitorPhone}</div>
       </td>
       <td className="px-4 py-3 text-sm text-gray-600">{appt.specialist?.name ?? '—'}</td>
-      <td className="px-4 py-3 text-sm text-gray-600">{appt.service?.name ?? '—'}</td>
+      <td className="px-4 py-3 text-sm text-gray-600">{serviceLabel(appt)}</td>
       <td className="px-4 py-3">
         <span
           className={`rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_COLORS[appt.status]}`}
@@ -407,6 +538,13 @@ function AppointmentRow({
               <CheckIcon size={14} />
             </button>
           )}
+          <button
+            onClick={onEdit}
+            className="rounded p-1 text-gray-600 hover:bg-gray-100"
+            title="Редактировать"
+          >
+            <PencilIcon size={14} />
+          </button>
           {canReschedule && (
             <button
               onClick={onReschedule}
@@ -445,7 +583,7 @@ function AppointmentChip({ appt }: { appt: Appointment }) {
         </span>
       </div>
       <p className="mt-1 truncate text-xs text-gray-700">{appt.visitorName}</p>
-      <p className="truncate text-[11px] text-gray-400">{appt.service?.name ?? 'Без услуги'}</p>
+      <p className="truncate text-[11px] text-gray-400">{serviceLabel(appt)}</p>
     </div>
   );
 }
@@ -649,6 +787,7 @@ export function AppointmentsPage() {
   const [scheduleSpecialistId, setScheduleSpecialistId] = useState('');
   const [showCreate, setShowCreate] = useState(false);
   const [rescheduling, setRescheduling] = useState<Appointment | null>(null);
+  const [editing, setEditing] = useState<Appointment | null>(null);
 
   const appointmentsQuery = useQuery<Appointment[]>({
     queryKey: ['appointments', statusFilter, fromDate, toDate, specialistFilter],
@@ -822,6 +961,7 @@ export function AppointmentsPage() {
                     if (confirm('Отменить запись?')) cancelMutation.mutate(a.id);
                   }}
                   onReschedule={() => setRescheduling(a)}
+                  onEdit={() => setEditing(a)}
                 />
               ))}
             </tbody>
@@ -832,6 +972,7 @@ export function AppointmentsPage() {
       {rescheduling && (
         <RescheduleModal appointment={rescheduling} onClose={() => setRescheduling(null)} />
       )}
+      {editing && <EditAppointmentModal appointment={editing} onClose={() => setEditing(null)} />}
       {showCreate && (
         <CreateAppointmentModal
           specialists={specialists}
