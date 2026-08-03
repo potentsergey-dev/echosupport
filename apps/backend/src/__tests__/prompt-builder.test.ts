@@ -136,4 +136,24 @@ describe('prompt builder', () => {
     expect(systemPrompt).toContain('requested group_participants is greater than remainingSeats');
     expect(systemPrompt).toContain('Every appointment must include the selected service');
   });
+  it('resets an earlier date when the visitor switches services', () => {
+    const messages = buildMessages({
+      agentSystemPrompt: 'You are a salon assistant.',
+      chunks: [],
+      history: [
+        { role: 'USER', content: 'На завтра есть Dimensional color?' },
+        { role: 'ASSISTANT', content: 'На завтра есть варианты у Марии.' },
+      ],
+      summary: null,
+      userText: 'Хочу записаться к Еве на Face practice.',
+    });
+    const systemPrompt = String(messages[0]?.content ?? '');
+    expect(systemPrompt).toContain(
+      'discard the previous specialist, date, slot, and group-participant context',
+    );
+    expect(systemPrompt).toContain('Do not reuse an earlier “tomorrow”, weekday, or date');
+    expect(systemPrompt).toContain(
+      'do not claim availability, working days, or unavailable slots without a booking-tool result',
+    );
+  });
 });
