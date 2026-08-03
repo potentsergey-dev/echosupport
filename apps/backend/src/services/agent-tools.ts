@@ -174,7 +174,7 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: 'find_available_slots',
       description:
-        'Find available appointment time slots for the requested specialist. If the visitor already selected a specialist in the conversation, keep using that same specialist unless the visitor explicitly asks to change. Returns free slots in the business local timezone plus UTC audit fields.',
+        'Find available appointment time slots. Pass a specialist when the visitor chose one. When a service and date are known but no specialist was chosen, pass service_id or service_name without a specialist: the server returns grouped slots for every compatible specialist. Returns free slots in the business local timezone plus UTC audit fields.',
       parameters: {
         type: 'object',
         properties: {
@@ -189,7 +189,12 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           },
           service_id: {
             type: 'string',
-            description: 'Optional service ID (determines slot duration).',
+            description: 'Service ID (determines slot duration).',
+          },
+          service_name: {
+            type: 'string',
+            description:
+              'Service name from the visitor, for example "Dimensional color", when service_id is unavailable or uncertain.',
           },
           date_from: {
             type: 'string',
@@ -498,16 +503,22 @@ export async function executeTool(
     }
 
     case 'find_available_slots': {
-      let specialistId = String(args['specialist_id'] ?? '');
+      let specialistId = String(args['specialist_id'] ?? '').trim();
       const specialistName = String(args['specialist_name'] ?? '').trim();
-      const serviceId = args['service_id'] ? String(args['service_id']) : null;
+      const serviceId = args['service_id'] ? String(args['service_id']).trim() : '';
+      const serviceName = String(args['service_name'] ?? '').trim();
       let dateFrom = String(args['date_from'] ?? '');
       let dateTo = String(args['date_to'] ?? '');
 
-      if ((!specialistId && !specialistName) || !dateFrom || !dateTo) {
+      if (
+        (!specialistId && !specialistName && !serviceId && !serviceName) ||
+        !dateFrom ||
+        !dateTo
+      ) {
         return {
           result: JSON.stringify({
-            error: 'specialist_id or specialist_name, plus date_from and date_to, are required',
+            error:
+              'service_id or service_name, plus date_from and date_to, are required; include a specialist only when the visitor selected one',
           }),
         };
       }
@@ -554,6 +565,94 @@ export async function executeTool(
         }
         specialist = matches[0] ?? null;
         specialistId = specialist?.id ?? '';
+      }
+      if (!specialist && !specialistId && !specialistName) {
+        const candidates = await prisma.specialist.findMany({
+          where: specialistWhere,
+          select: { id: true, name: true, role: true },
+          orderBy: { name: 'asc' },
+        });
+        const serviceLookup = normalizeBookingLookup(serviceName || serviceId);
+        const timeZone = await getBusinessTimezone(ctx.agentId);
+        const availability = await Promise.all(
+          candidates.map(async (candidate) => {
+            const services = await getActiveServicesForSpecialist({
+              tenantId: agent.tenantId,
+              specialistId: candidate.id,
+            });
+            const service = services.find((item) => {
+              const normalizedName = normalizeBookingLookup(item.name);
+              return (
+                item.id === serviceId ||
+                normalizedName === serviceLookup ||
+                normalizedName.includes(serviceLookup)
+              );
+            });
+            if (!service) return null;
+            const slots = await findAvailableSlots(
+              candidate.id,
+              service.id,
+              dateFrom,
+              dateTo,
+              timeZone,
+            );
+            return { candidate, service, slots };
+          }),
+        );
+        const matches = availability.filter(
+          (entry): entry is NonNullable<typeof entry> => entry !== null,
+        );
+        if (matches.length === 0) {
+          return {
+            result: JSON.stringify({
+              error: 'SERVICE_NOT_FOUND',
+              serviceName: serviceName || undefined,
+              instruction:
+                'Tell the visitor that this service is unavailable and offer to check another service.',
+            }),
+          };
+        }
+        let remainingSlots = 8;
+        const specialists = matches
+          .map(({ candidate, service, slots }) => {
+            const formattedSlots = slots
+              .slice(0, remainingSlots)
+              .map((slot) => formatAvailableSlotForBusinessTime(slot, timeZone));
+            remainingSlots -= formattedSlots.length;
+            return {
+              specialist: candidate,
+              service: {
+                id: service.id,
+                name: service.name,
+                isGroup: service.isGroup,
+                capacity: service.capacity,
+              },
+              slots: formattedSlots,
+            };
+          })
+          .filter((entry) => entry.slots.length > 0);
+        if (specialists.length === 0) {
+          return {
+            result: JSON.stringify({
+              error: 'NO_SLOTS',
+              timeZone,
+              dateRange: { dateFrom, dateTo, kind: 'explicit' },
+              instruction:
+                'Tell the visitor there are no free slots for this service on this date and offer another day.',
+            }),
+          };
+        }
+        const slotsForReplies = specialists.flatMap((entry) => entry.slots);
+        return {
+          result: JSON.stringify({
+            timeZone,
+            dateRange: { dateFrom, dateTo, kind: 'explicit' },
+            instruction:
+              'Show only specialists with returned slots, grouped by specialist. Ask the visitor to choose a specialist and exact local time. Do not claim a slot is unavailable unless it is absent from these results.',
+            specialists: specialists.filter((entry) => entry.slots.length > 0),
+          }),
+          quickReplies: buildSlotQuickReplies(slotsForReplies),
+        };
       }
       if (!specialist) {
         return {
