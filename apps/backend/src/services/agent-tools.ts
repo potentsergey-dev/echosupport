@@ -215,7 +215,7 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     function: {
       name: 'create_appointment_request',
       description:
-        'Create an appointment booking request, including group-service bookings. Call after the visitor explicitly chose or confirmed one exact local date and start time, plus name, phone, specialist, and service. Prefer IDs returned by booking tools, but if an ID is unavailable pass specialist_name and service_name; the backend will resolve them. A group slot returned by find_available_slots is bookable; call this tool and let the backend enforce capacity instead of refusing it. Do not call when the visitor only gave a broad range such as "this week" or asked for help choosing a free time; use find_available_slots first and ask the visitor to pick a slot.',
+        'Create an appointment booking request, including group-service bookings. Call after the visitor explicitly chose or confirmed one exact local date and start time, plus name, phone, specialist, and service. Always pass service_id or service_name; appointments must not be created without a service. For group services, ask how many people the visitor wants to book before calling this tool, then pass group_participants. Prefer IDs returned by booking tools, but if an ID is unavailable pass specialist_name and service_name; the backend will resolve them. A group slot returned by find_available_slots is bookable; call this tool and let the backend enforce capacity instead of refusing it. Do not call when the visitor only gave a broad range such as "this week" or asked for help choosing a free time; use find_available_slots first and ask the visitor to pick a slot.',
       parameters: {
         type: 'object',
         properties: {
@@ -239,8 +239,15 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           name: { type: 'string', description: "Visitor's full name (required, min 2 chars)." },
           phone: { type: 'string', description: "Visitor's phone number (required)." },
           email: { type: 'string', description: "Visitor's email (optional)." },
+          group_participants: {
+            type: 'integer',
+            minimum: 1,
+            maximum: 20,
+            description:
+              'For group services, the number of people the visitor wants to book, including themselves. Ask before booking if unknown.',
+          },
         },
-        required: ['specialist_id', 'starts_at', 'name', 'phone'],
+        required: ['starts_at', 'name', 'phone'],
       },
     },
   },
@@ -659,11 +666,12 @@ export async function executeTool(
           specialist: { id: specialist.id, name: specialist.name, role: specialist.role },
           service: {
             id: bookableService.id,
+            name: bookableService.name,
             isGroup: bookableService.isGroup,
             capacity: bookableService.capacity,
           },
           instruction: bookableService.isGroup
-            ? 'Every returned group slot is available for booking. When the visitor confirms one, call create_appointment_request with its bookingValue. Do not require a separately pre-created group session; backend capacity checks are authoritative.'
+            ? 'Every returned group slot is available for booking. remainingSeats is the number of seats left in that exact group slot. When the visitor picks a group slot, ask whether they are booking only themselves or several people before calling create_appointment_request. If requested participants exceed remainingSeats, do not create the appointment; explain how many seats remain and offer another time. Do not require a separately pre-created group session; backend capacity checks are authoritative.'
             : 'These slots are already converted to local business time. Show display/local times to the visitor. Use bookingValue as starts_at when creating an appointment.',
           slots: formattedSlots,
         }),
@@ -680,6 +688,11 @@ export async function executeTool(
       const name = String(args['name'] ?? '').trim();
       const phone = String(args['phone'] ?? '').trim();
       const email = args['email'] ? String(args['email']).trim() : undefined;
+      const hasGroupParticipants = args['group_participants'] !== undefined;
+      const requestedParticipantsRaw = Number(args['group_participants'] ?? 1);
+      const requestedParticipants = Number.isInteger(requestedParticipantsRaw)
+        ? requestedParticipantsRaw
+        : 1;
 
       // Validate inputs
       if (!specialistId && !specialistName)
@@ -693,6 +706,22 @@ export async function executeTool(
         };
       if (!startsAtStr)
         return { result: JSON.stringify({ success: false, error: 'starts_at required' }) };
+      if (!serviceId && !serviceName)
+        return {
+          result: JSON.stringify({
+            success: false,
+            error: 'service_id or service_name required',
+            instruction:
+              'Ask the visitor to choose a service before creating the appointment. Do not create an appointment without a service.',
+          }),
+        };
+      if (requestedParticipants < 1 || requestedParticipants > 20)
+        return {
+          result: JSON.stringify({
+            success: false,
+            error: 'group_participants must be between 1 and 20',
+          }),
+        };
       if (name.length < 2)
         return {
           result: JSON.stringify({ success: false, error: 'Name too short (min 2 chars)' }),
@@ -777,11 +806,13 @@ export async function executeTool(
           }),
         };
 
-      let bookableService = await getBookableServiceForSpecialist({
-        tenantId: agent.tenantId,
-        specialistId,
-        serviceId,
-      });
+      let bookableService = serviceId
+        ? await getBookableServiceForSpecialist({
+            tenantId: agent.tenantId,
+            specialistId,
+            serviceId,
+          })
+        : null;
       if (!bookableService && (serviceName || serviceId)) {
         const serviceLookup = normalizeBookingLookup(serviceName || serviceId || '');
         const services = await getActiveServicesForSpecialist({
@@ -812,6 +843,25 @@ export async function executeTool(
           }),
         };
       }
+      if (bookableService.isGroup && !hasGroupParticipants) {
+        return {
+          result: JSON.stringify({
+            success: false,
+            error: 'group_participants required for group services',
+            instruction:
+              'Ask whether the visitor is booking only themselves or several people, then call create_appointment_request again with group_participants.',
+          }),
+        };
+      }
+      if (!bookableService.isGroup && requestedParticipants !== 1) {
+        return {
+          result: JSON.stringify({
+            success: false,
+            error: 'group_participants can only be used for group services',
+            instruction: 'For individual services, create one appointment for one visitor.',
+          }),
+        };
+      }
       const endsAt = new Date(startsAt.getTime() + bookableService.durationMin * 60 * 1000);
 
       // Validate slot is within specialist's working hours
@@ -836,6 +886,7 @@ export async function executeTool(
             endsAt,
             isGroup: bookableService.isGroup,
             capacity: bookableService.capacity,
+            requestedParticipants: bookableService.isGroup ? requestedParticipants : 1,
             db: tx,
           });
 
@@ -853,6 +904,9 @@ export async function executeTool(
               endsAt,
               status: 'PENDING',
               source: 'AGENT',
+              notes: bookableService.isGroup
+                ? `Group participants: ${requestedParticipants}`
+                : null,
             },
           });
         })
@@ -867,8 +921,12 @@ export async function executeTool(
             success: false,
             error:
               appointment === 'SLOT_FULL'
-                ? 'This group session is already full. Please choose another time.'
+                ? 'There are not enough free seats in this group session. Please choose another time or reduce the number of participants.'
                 : 'That time slot is no longer available. Please choose another slot.',
+            instruction:
+              appointment === 'SLOT_FULL'
+                ? 'Tell the visitor this slot does not have enough remaining seats for their requested group size and offer another returned slot.'
+                : undefined,
           }),
         };
       }
@@ -895,6 +953,8 @@ export async function executeTool(
             visitorName: name,
             visitorPhone: phone,
             startsAt: startsAt.toISOString(),
+            serviceName: bookableService.name ?? serviceName ?? bookableService.id,
+            participants: bookableService.isGroup ? requestedParticipants : 1,
           },
           channels: ['browser'],
         },
@@ -916,7 +976,9 @@ export async function executeTool(
         result: JSON.stringify({
           success: true,
           appointmentId: appointment.id,
-          message: `Appointment booked for ${name} on ${formatBusinessDateTime(startsAt, timeZone)} (${timeZone}). Status: PENDING — awaiting operator confirmation.`,
+          message: bookableService.isGroup
+            ? `Group appointment booked for ${requestedParticipants} participant${requestedParticipants === 1 ? '' : 's'} for ${name} on ${formatBusinessDateTime(startsAt, timeZone)} (${timeZone}). Service: ${bookableService.name ?? serviceName}. Status: PENDING — awaiting operator confirmation.`
+            : `Appointment booked for ${name} on ${formatBusinessDateTime(startsAt, timeZone)} (${timeZone}). Service: ${bookableService.name ?? serviceName}. Status: PENDING — awaiting operator confirmation.`,
         }),
       };
     }

@@ -63,7 +63,13 @@ describe('booking helpers', () => {
         specialistId: 'specialist-1',
         serviceId: 'service-1',
       }),
-    ).resolves.toEqual({ id: 'service-1', durationMin: 45, isGroup: true, capacity: 5 });
+    ).resolves.toEqual({
+      id: 'service-1',
+      name: undefined,
+      durationMin: 45,
+      isGroup: true,
+      capacity: 5,
+    });
 
     expect(getActiveServicesForSpecialist).toHaveBeenCalledWith({
       tenantId: 'tenant-1',
@@ -87,7 +93,7 @@ describe('booking helpers', () => {
     const endsAt = new Date('2026-06-29T10:00:00');
 
     vi.mocked(prisma.appointment.findMany).mockResolvedValueOnce([
-      { id: 'appt-1', serviceId: 'service-1', startsAt, endsAt },
+      { id: 'appt-1', serviceId: 'service-1', startsAt, endsAt, notes: null },
     ] as never);
 
     await expect(
@@ -102,8 +108,8 @@ describe('booking helpers', () => {
     ).resolves.toBeUndefined();
 
     vi.mocked(prisma.appointment.findMany).mockResolvedValueOnce([
-      { id: 'appt-1', serviceId: 'service-1', startsAt, endsAt },
-      { id: 'appt-2', serviceId: 'service-1', startsAt, endsAt },
+      { id: 'appt-1', serviceId: 'service-1', startsAt, endsAt, notes: null },
+      { id: 'appt-2', serviceId: 'service-1', startsAt, endsAt, notes: null },
     ] as never);
 
     await expect(
@@ -118,12 +124,49 @@ describe('booking helpers', () => {
     ).rejects.toThrow('SLOT_FULL');
   });
 
+  it('counts requested group participants against remaining capacity', async () => {
+    const startsAt = new Date('2026-06-29T09:00:00');
+    const endsAt = new Date('2026-06-29T10:00:00');
+
+    vi.mocked(prisma.appointment.findMany).mockResolvedValueOnce([
+      { id: 'appt-1', serviceId: 'service-1', startsAt, endsAt, notes: 'Group participants: 3' },
+    ] as never);
+
+    await expect(
+      assertSlotCanAcceptAppointment({
+        specialistId: 'specialist-1',
+        serviceId: 'service-1',
+        startsAt,
+        endsAt,
+        isGroup: true,
+        capacity: 5,
+        requestedParticipants: 2,
+      }),
+    ).resolves.toBeUndefined();
+
+    vi.mocked(prisma.appointment.findMany).mockResolvedValueOnce([
+      { id: 'appt-1', serviceId: 'service-1', startsAt, endsAt, notes: 'Group participants: 3' },
+    ] as never);
+
+    await expect(
+      assertSlotCanAcceptAppointment({
+        specialistId: 'specialist-1',
+        serviceId: 'service-1',
+        startsAt,
+        endsAt,
+        isGroup: true,
+        capacity: 5,
+        requestedParticipants: 3,
+      }),
+    ).rejects.toThrow('SLOT_FULL');
+  });
+
   it('blocks overlapping appointments for non-group services and different group slots', async () => {
     const startsAt = new Date('2026-06-29T09:00:00');
     const endsAt = new Date('2026-06-29T10:00:00');
 
     vi.mocked(prisma.appointment.findMany).mockResolvedValueOnce([
-      { id: 'appt-1', serviceId: 'service-2', startsAt, endsAt },
+      { id: 'appt-1', serviceId: 'service-2', startsAt, endsAt, notes: null },
     ] as never);
 
     await expect(
