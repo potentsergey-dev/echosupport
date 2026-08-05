@@ -176,6 +176,7 @@ model Session {
   ipHash       String?
   language     String?
   summary      String?   @db.Text
+  bookingContext Json?
   startedAt    DateTime  @default(now())
   lastActiveAt DateTime  @default(now())
   expiresAt    DateTime

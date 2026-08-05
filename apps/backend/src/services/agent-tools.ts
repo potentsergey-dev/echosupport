@@ -33,6 +33,7 @@ import {
   resolveRelativeBookingDateRange,
 } from './booking-tool-utils.js';
 import { getActiveServicesForSpecialist } from './specialist-services.js';
+import type { BookingContext } from './booking-context.js';
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
   return [...new Set(values.map((value) => value?.trim()).filter(Boolean) as string[])];
@@ -264,8 +265,31 @@ export interface ToolExecutionContext {
   sessionId: string;
   agentId: string;
   tenantId: string;
+  bookingContext?: BookingContext | null;
 }
 
+function pendingBookingDateResult(): ToolResult {
+  return {
+    result: JSON.stringify({
+      error: 'DATE_REQUIRED_FOR_NEW_SERVICE',
+      instruction:
+        'The visitor changed to a new service without providing a date. Ask only which date they want before requesting contacts, participants, availability, or creating an appointment.',
+    }),
+  };
+}
+
+function needsNewBookingDate(
+  ctx: ToolExecutionContext,
+  serviceId: string | undefined,
+  serviceName: string,
+): boolean {
+  const bookingContext = ctx.bookingContext;
+  if (!bookingContext?.needsDate) return false;
+  return (
+    bookingContext.serviceId === serviceId ||
+    normalizeBookingLookup(bookingContext.serviceName) === normalizeBookingLookup(serviceName)
+  );
+}
 export interface ToolResult {
   result: string;
   /** Side effects that need to be communicated to the SSE layer */
@@ -509,6 +533,10 @@ export async function executeTool(
       const serviceName = String(args['service_name'] ?? '').trim();
       let dateFrom = String(args['date_from'] ?? '');
       let dateTo = String(args['date_to'] ?? '');
+
+      if (needsNewBookingDate(ctx, serviceId || undefined, serviceName)) {
+        return pendingBookingDateResult();
+      }
 
       if (
         (!specialistId && !specialistName && !serviceId && !serviceName) ||
@@ -792,6 +820,10 @@ export async function executeTool(
       const requestedParticipants = Number.isInteger(requestedParticipantsRaw)
         ? requestedParticipantsRaw
         : 1;
+
+      if (needsNewBookingDate(ctx, serviceId, serviceName)) {
+        return pendingBookingDateResult();
+      }
 
       // Validate inputs
       if (!specialistId && !specialistName)
