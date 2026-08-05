@@ -289,6 +289,21 @@ function bookingSelectionRequiredResult(): ToolResult {
     }),
   };
 }
+function matchesSelectedSlotTime(ctx: ToolExecutionContext, startsAt: string): boolean {
+  const selectedSlotTime = ctx.bookingContext?.selectedSlotTime;
+  if (!selectedSlotTime) return true;
+  return startsAt.includes(` ${selectedSlotTime}`) || startsAt.includes(`T${selectedSlotTime}`);
+}
+
+function selectedSlotMismatchResult(): ToolResult {
+  return {
+    result: JSON.stringify({
+      error: 'SELECTED_SLOT_TIME_MISMATCH',
+      instruction:
+        'Do not create an appointment for a different time. Use the exact time the visitor selected, or ask them to choose a slot again.',
+    }),
+  };
+}
 function needsNewBookingDate(
   ctx: ToolExecutionContext,
   serviceId: string | undefined,
@@ -835,8 +850,15 @@ export async function executeTool(
       if (needsNewBookingDate(ctx, serviceId, serviceName)) {
         return pendingBookingDateResult();
       }
-      if (ctx.visitorText && !hasExplicitBookingDateTime(ctx.visitorText)) {
+      if (
+        ctx.visitorText &&
+        !hasExplicitBookingDateTime(ctx.visitorText) &&
+        !ctx.bookingContext?.selectedSlot
+      ) {
         return bookingSelectionRequiredResult();
+      }
+      if (!matchesSelectedSlotTime(ctx, startsAtStr)) {
+        return selectedSlotMismatchResult();
       }
 
       // Validate inputs

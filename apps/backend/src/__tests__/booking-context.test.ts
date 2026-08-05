@@ -38,9 +38,31 @@ describe('booking context', () => {
     expect(deriveBookingContext(pending, '7 августа в 10:00', services)).toEqual({
       ...pending,
       needsDate: false,
+      selectedSlot: true,
+      selectedSlotTime: '10:00',
     });
   });
 
+  it('preserves a selected slot while the visitor supplies contact details', () => {
+    const pending = {
+      serviceId: 'face-practice',
+      serviceName: 'Face practice',
+      needsDate: true,
+    };
+    const selected = deriveBookingContext(pending, '7 августа 09:00', services);
+
+    expect(selected).toEqual({
+      ...pending,
+      needsDate: false,
+      selectedSlot: true,
+      selectedSlotTime: '09:00',
+    });
+    expect(deriveBookingContext(selected, 'Сергей +375290000004', services)).toEqual(selected);
+    expect(deriveBookingContext(selected, '8 августа', services)).toEqual({
+      ...pending,
+      needsDate: false,
+    });
+  });
   it('requires both date and time before a slot can be selected', () => {
     expect(hasExplicitBookingDateTime('7 августа в 10:00')).toBe(true);
     expect(hasExplicitBookingDateTime('7 августа')).toBe(false);
