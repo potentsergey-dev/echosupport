@@ -155,5 +155,8 @@ describe('prompt builder', () => {
     expect(systemPrompt).toContain(
       'do not claim availability, working days, or unavailable slots without a booking-tool result',
     );
+    expect(systemPrompt).toContain(
+      'Never ask them to confirm the service or their wish to check slots.',
+    );
   });
 });
