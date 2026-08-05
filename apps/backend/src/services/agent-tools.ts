@@ -841,8 +841,12 @@ export async function executeTool(
       const name = String(args['name'] ?? '').trim();
       const phone = String(args['phone'] ?? '').trim();
       const email = args['email'] ? String(args['email']).trim() : undefined;
-      const hasGroupParticipants = args['group_participants'] !== undefined;
-      const requestedParticipantsRaw = Number(args['group_participants'] ?? 1);
+      const savedGroupParticipants = ctx.bookingContext?.groupParticipants;
+      const hasGroupParticipants =
+        args['group_participants'] !== undefined || savedGroupParticipants !== undefined;
+      const requestedParticipantsRaw = Number(
+        args['group_participants'] ?? savedGroupParticipants ?? 1,
+      );
       const requestedParticipants = Number.isInteger(requestedParticipantsRaw)
         ? requestedParticipantsRaw
         : 1;

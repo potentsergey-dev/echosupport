@@ -63,6 +63,20 @@ describe('booking context', () => {
       needsDate: false,
     });
   });
+  it('remembers a confirmed single participant while collecting booking details', () => {
+    const selected = {
+      serviceId: 'face-practice',
+      serviceName: 'Face practice',
+      needsDate: false,
+      selectedSlot: true as const,
+      selectedSlotTime: '09:00',
+    };
+
+    const confirmed = deriveBookingContext(selected, 'Только для себя', services);
+
+    expect(confirmed).toEqual({ ...selected, groupParticipants: 1 });
+    expect(deriveBookingContext(confirmed, 'Сергей +375290000004', services)).toEqual(confirmed);
+  });
   it('requires both date and time before a slot can be selected', () => {
     expect(hasExplicitBookingDateTime('7 августа в 10:00')).toBe(true);
     expect(hasExplicitBookingDateTime('7 августа')).toBe(false);
