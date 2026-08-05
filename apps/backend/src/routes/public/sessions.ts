@@ -403,7 +403,16 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
 
       try {
         if (bookingDateRequired && bookingContext) {
-          const fullText = buildBookingDateQuestion(bookingContext.serviceName, text);
+          const previousMessage = await prisma.message.findFirst({
+            where: { sessionId, id: { not: visitorMessage.id } },
+            orderBy: { createdAt: 'desc' },
+            select: { content: true },
+          });
+          const fullText = buildBookingDateQuestion(
+            bookingContext.serviceName,
+            text,
+            previousMessage?.content ?? session.language ?? '',
+          );
           sseWrite(raw, 'typing', { typing: true });
           sseWrite(raw, 'delta', { text: fullText });
           const assistantMsg = await prisma.message.create({

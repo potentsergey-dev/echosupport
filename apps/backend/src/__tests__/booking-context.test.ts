@@ -91,9 +91,17 @@ describe('booking context', () => {
       'which date',
     );
   });
-  it('recognizes relative and explicit Russian dates', () => {
+  it('recognizes relative, textual, and numeric Russian dates', () => {
     expect(hasExplicitDateReference('На завтра')).toBe(true);
     expect(hasExplicitDateReference('7 авг')).toBe(true);
+    expect(hasExplicitDateReference('07.08')).toBe(true);
+    expect(hasExplicitDateReference('07.08.2026')).toBe(true);
     expect(hasExplicitDateReference('Хочу только себя')).toBe(false);
+  });
+
+  it('keeps the conversation language for a numeric date clarification', () => {
+    expect(
+      buildBookingDateQuestion('Face practice', '07.08', 'Для записи укажите дату.'),
+    ).toContain('укажите, пожалуйста, дату');
   });
 });
