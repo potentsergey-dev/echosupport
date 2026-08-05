@@ -44,7 +44,7 @@ export function parseBookingContext(value: unknown): BookingContext | null {
 }
 
 export function hasExplicitDateReference(text: string): boolean {
-  return /\b(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|(?<!\p{L})(?:сегодня|завтра|послезавтра|понедельник|вторник|среда|четверг|пятница|суббота|воскресенье)(?!\p{L})|\b\d{4}-\d{2}-\d{2}\b|\b\d{1,2}\s*(?:янв(?:аря)?|фев(?:раля)?|марта|апреля|мая|июн(?:я)?|июл(?:я)?|авг(?:уста)?|сен(?:тября)?|окт(?:ября)?|ноя(?:бря)?|дек(?:абря)?|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?!\p{L})/iu.test(
+  return /\b(?:today|tomorrow|tonight|monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b|(?<!\p{L})(?:сегодня|завтра|послезавтра|понедельник|вторник|среда|четверг|пятница|суббота|воскресенье)(?!\p{L})|\b\d{4}-\d{2}-\d{2}\b|\b(?:0?[1-9]|[12]\d|3[01])\.(?:0?[1-9]|1[0-2])(?:\.\d{2,4})?\b|\b\d{1,2}\s*(?:янв(?:аря)?|фев(?:раля)?|марта|апреля|мая|июн(?:я)?|июл(?:я)?|авг(?:уста)?|сен(?:тября)?|окт(?:ября)?|ноя(?:бря)?|дек(?:абря)?|jan(?:uary)?|feb(?:ruary)?|mar(?:ch)?|apr(?:il)?|may|jun(?:e)?|jul(?:y)?|aug(?:ust)?|sep(?:tember)?|oct(?:ober)?|nov(?:ember)?|dec(?:ember)?)(?!\p{L})/iu.test(
     text,
   );
 }
@@ -135,8 +135,26 @@ export function deriveBookingContext(
   }
   return withConfirmedParticipants(current);
 }
-export function buildBookingDateQuestion(serviceName: string, visitorText: string): string {
-  if (/\p{Script=Cyrillic}/u.test(visitorText)) {
+function usesRussianLanguage(text: string): boolean {
+  return /\p{Script=Cyrillic}/u.test(text) || /^(?:ru|be|uk)(?:[-_]|$)/iu.test(text.trim());
+}
+
+function usesEnglishLanguage(text: string): boolean {
+  return /[a-z]/iu.test(text);
+}
+
+export function buildBookingDateQuestion(
+  serviceName: string,
+  visitorText: string,
+  conversationLanguage = '',
+): string {
+  const useRussian = usesRussianLanguage(visitorText)
+    ? true
+    : usesEnglishLanguage(visitorText)
+      ? false
+      : usesRussianLanguage(conversationLanguage);
+
+  if (useRussian) {
     return `Для записи на «${serviceName}» укажите, пожалуйста, дату.`;
   }
   return `Please tell me which date you would like for ${serviceName}.`;
