@@ -167,6 +167,34 @@ describe('booking date guard', () => {
     expect(findAvailableSlots).not.toHaveBeenCalled();
   });
 
+  it('blocks appointment creation until the visitor explicitly selects a date and time', async () => {
+    vi.clearAllMocks();
+    const toolResult = await executeTool(
+      'create_appointment_request',
+      {
+        specialist_name: 'Ева',
+        service_name: 'Face practice',
+        starts_at: '2026-08-07 12:00',
+        name: 'Сергей',
+        phone: '+375290000004',
+      },
+      {
+        sessionId: 'session-1',
+        agentId: 'agent-1',
+        tenantId: 'tenant-1',
+        bookingContext: {
+          serviceId: 'face-practice',
+          serviceName: 'Face practice',
+          needsDate: false,
+        },
+        visitorText: '1 человек',
+      },
+    );
+
+    expect(JSON.parse(toolResult.result)).toMatchObject({
+      error: 'EXPLICIT_SLOT_SELECTION_REQUIRED',
+    });
+  });
   it('blocks appointment creation for a newly selected service until the visitor gives a date', async () => {
     vi.clearAllMocks();
     const toolResult = await executeTool(
