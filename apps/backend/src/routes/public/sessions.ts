@@ -25,7 +25,11 @@ import { summarizeError } from '../../services/error-sanitizer.js';
 import { isOriginAllowed } from '../../services/origin-policy.js';
 import { isExplicitHandoffRequest } from '../../services/handoff-intent.js';
 import { publishToOperators } from '../../services/realtime-hub.js';
-import { deriveBookingContext, parseBookingContext } from '../../services/booking-context.js';
+import {
+  buildBookingDateQuestion,
+  deriveBookingContext,
+  parseBookingContext,
+} from '../../services/booking-context.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -398,6 +402,37 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       try {
+        if (bookingDateRequired && bookingContext) {
+          const fullText = buildBookingDateQuestion(bookingContext.serviceName, text);
+          sseWrite(raw, 'typing', { typing: true });
+          sseWrite(raw, 'delta', { text: fullText });
+          const assistantMsg = await prisma.message.create({
+            data: {
+              sessionId,
+              role: 'ASSISTANT',
+              content: fullText,
+              authorType: 'AGENT',
+            },
+            select: { id: true },
+          });
+          await prisma.session.update({
+            where: { id: sessionId },
+            data: {
+              lastActiveAt: new Date(),
+              expiresAt: new Date(Date.now() + session.agent.sessionTtlMinutes * 60 * 1000),
+            },
+          });
+          sseWrite(raw, 'done', {
+            messageId: assistantMsg.id,
+            fullText,
+            tokensIn: null,
+            tokensOut: null,
+            retrievedSources: [],
+            handoffRequested: false,
+          });
+          return;
+        }
+
         sseWrite(raw, 'typing', { typing: true });
 
         // Load recent history (exclude the message we just saved)
@@ -557,6 +592,7 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
               agentId: agent.id,
               tenantId: session.agent.tenantId,
               bookingContext: parseBookingContext(bookingContext),
+              visitorText: text,
             });
 
             if (toolResult.sideEffect === 'handoff_requested') {
@@ -621,7 +657,7 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
           where: { id: sessionId },
           data: {
             lastActiveAt: new Date(),
-            expiresAt: new Date(Date.now() + agent.sessionTtlMinutes * 60 * 1000),
+            expiresAt: new Date(Date.now() + session.agent.sessionTtlMinutes * 60 * 1000),
           },
         });
 

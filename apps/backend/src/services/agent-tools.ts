@@ -34,6 +34,7 @@ import {
 } from './booking-tool-utils.js';
 import { getActiveServicesForSpecialist } from './specialist-services.js';
 import type { BookingContext } from './booking-context.js';
+import { hasExplicitBookingDateTime } from './booking-context.js';
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
   return [...new Set(values.map((value) => value?.trim()).filter(Boolean) as string[])];
@@ -266,6 +267,7 @@ export interface ToolExecutionContext {
   agentId: string;
   tenantId: string;
   bookingContext?: BookingContext | null;
+  visitorText?: string;
 }
 
 function pendingBookingDateResult(): ToolResult {
@@ -278,6 +280,15 @@ function pendingBookingDateResult(): ToolResult {
   };
 }
 
+function bookingSelectionRequiredResult(): ToolResult {
+  return {
+    result: JSON.stringify({
+      error: 'EXPLICIT_SLOT_SELECTION_REQUIRED',
+      instruction:
+        'Do not create an appointment yet. Ask the visitor to choose one exact date and time from the available slots.',
+    }),
+  };
+}
 function needsNewBookingDate(
   ctx: ToolExecutionContext,
   serviceId: string | undefined,
@@ -823,6 +834,9 @@ export async function executeTool(
 
       if (needsNewBookingDate(ctx, serviceId, serviceName)) {
         return pendingBookingDateResult();
+      }
+      if (ctx.visitorText && !hasExplicitBookingDateTime(ctx.visitorText)) {
+        return bookingSelectionRequiredResult();
       }
 
       // Validate inputs

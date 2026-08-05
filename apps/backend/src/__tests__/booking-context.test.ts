@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { deriveBookingContext, hasExplicitDateReference } from '../services/booking-context.js';
+import {
+  buildBookingDateQuestion,
+  deriveBookingContext,
+  hasExplicitBookingDateTime,
+  hasExplicitDateReference,
+} from '../services/booking-context.js';
 
 const services = [
   { id: 'dimensional', name: 'Dimensional color' },
@@ -36,6 +41,20 @@ describe('booking context', () => {
     });
   });
 
+  it('requires both date and time before a slot can be selected', () => {
+    expect(hasExplicitBookingDateTime('7 августа в 10:00')).toBe(true);
+    expect(hasExplicitBookingDateTime('7 августа')).toBe(false);
+    expect(hasExplicitBookingDateTime('1 человек')).toBe(false);
+  });
+
+  it('builds a direct date question in the visitor language', () => {
+    expect(buildBookingDateQuestion('Face practice', 'Хочу Face practice')).toContain(
+      'укажите, пожалуйста, дату',
+    );
+    expect(buildBookingDateQuestion('Face practice', 'I want Face practice')).toContain(
+      'which date',
+    );
+  });
   it('recognizes relative and explicit Russian dates', () => {
     expect(hasExplicitDateReference('На завтра')).toBe(true);
     expect(hasExplicitDateReference('7 авг')).toBe(true);

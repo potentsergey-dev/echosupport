@@ -62,3 +62,13 @@ export function deriveBookingContext(
   if (current?.needsDate && hasDate) return { ...current, needsDate: false };
   return current;
 }
+export function hasExplicitBookingDateTime(text: string): boolean {
+  return hasExplicitDateReference(text) && /\b(?:[01]?\d|2[0-3]):[0-5]\d\b/.test(text);
+}
+
+export function buildBookingDateQuestion(serviceName: string, visitorText: string): string {
+  if (/\p{Script=Cyrillic}/u.test(visitorText)) {
+    return `Для записи на «${serviceName}» укажите, пожалуйста, дату.`;
+  }
+  return `Please tell me which date you would like for ${serviceName}.`;
+}
