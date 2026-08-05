@@ -475,7 +475,10 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
           businessHoursContext: bookingDateRequired
             ? businessHoursContext +
               '\n\n## Booking state\n\nThe visitor changed to a new service and has not supplied a date. Ask only which date they want. Do not ask for contact details, participant count, confirmation, or call booking tools until they provide a date.'
-            : businessHoursContext,
+            : bookingContext?.groupParticipants
+              ? businessHoursContext +
+                `\n\n## Booking state\n\nThe visitor has already confirmed ${bookingContext.groupParticipants} group participant(s). Do not ask about participant count again. When creating this group appointment, pass group_participants=${bookingContext.groupParticipants}.`
+              : businessHoursContext,
         });
 
         // Resolve LLM API key

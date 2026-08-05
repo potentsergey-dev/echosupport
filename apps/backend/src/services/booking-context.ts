@@ -9,6 +9,7 @@ export interface BookingContext {
   needsDate: boolean;
   selectedSlot?: true;
   selectedSlotTime?: string;
+  groupParticipants?: number;
 }
 
 function normalize(value: string): string {
@@ -33,6 +34,12 @@ export function parseBookingContext(value: unknown): BookingContext | null {
     ...(typeof candidate.selectedSlotTime === 'string'
       ? { selectedSlotTime: candidate.selectedSlotTime }
       : {}),
+    ...(Number.isInteger(candidate.groupParticipants) &&
+    typeof candidate.groupParticipants === 'number' &&
+    candidate.groupParticipants >= 1 &&
+    candidate.groupParticipants <= 20
+      ? { groupParticipants: candidate.groupParticipants }
+      : {}),
   };
 }
 
@@ -51,6 +58,18 @@ export function extractBookingTime(text: string): string | null {
 
 export function hasExplicitBookingDateTime(text: string): boolean {
   return hasExplicitDateReference(text) && extractBookingTime(text) !== null;
+}
+
+function extractConfirmedGroupParticipants(text: string): number | null {
+  const normalizedText = normalize(text);
+  if (
+    /(?:только\s+(?:я|для\s+себя|себя)|(?:я\s+)?один\s+человек|(?<!\d)1(?!\d)\s*(?:человек|участник)?|only\s+(?:me|myself)|just\s+me)/iu.test(
+      normalizedText,
+    )
+  ) {
+    return 1;
+  }
+  return null;
 }
 
 function withoutSelectedSlot(context: BookingContext): BookingContext {
@@ -73,36 +92,49 @@ export function deriveBookingContext(
   const hasDate = hasExplicitDateReference(visitorText);
   const selectedSlotTime = extractBookingTime(visitorText);
   const hasDateTime = hasDate && selectedSlotTime !== null;
+  const groupParticipants = extractConfirmedGroupParticipants(visitorText);
+
+  const withConfirmedParticipants = (context: BookingContext | null): BookingContext | null =>
+    context && groupParticipants !== null ? { ...context, groupParticipants } : context;
 
   if (mentionedService) {
     if (!current || current.serviceId !== mentionedService.id) {
-      return {
+      return withConfirmedParticipants({
         serviceId: mentionedService.id,
         serviceName: mentionedService.name,
         needsDate: !hasDate,
         ...(hasDateTime ? { selectedSlot: true as const, selectedSlotTime } : {}),
-      };
+      });
     }
     if (hasDateTime) {
-      return { ...current, needsDate: false, selectedSlot: true, selectedSlotTime };
+      return withConfirmedParticipants({
+        ...current,
+        needsDate: false,
+        selectedSlot: true,
+        selectedSlotTime,
+      });
     }
-    if (hasDate) return { ...withoutSelectedSlot(current), needsDate: false };
-    return current;
+    if (hasDate)
+      return withConfirmedParticipants({ ...withoutSelectedSlot(current), needsDate: false });
+    return withConfirmedParticipants(current);
   }
 
   if (current?.needsDate && hasDate) {
-    return hasDateTime
-      ? { ...current, needsDate: false, selectedSlot: true, selectedSlotTime }
-      : { ...withoutSelectedSlot(current), needsDate: false };
+    return withConfirmedParticipants(
+      hasDateTime
+        ? { ...current, needsDate: false, selectedSlot: true, selectedSlotTime }
+        : { ...withoutSelectedSlot(current), needsDate: false },
+    );
   }
   if (current && hasDate) {
-    return hasDateTime
-      ? { ...current, selectedSlot: true, selectedSlotTime }
-      : withoutSelectedSlot(current);
+    return withConfirmedParticipants(
+      hasDateTime
+        ? { ...current, selectedSlot: true, selectedSlotTime }
+        : withoutSelectedSlot(current),
+    );
   }
-  return current;
+  return withConfirmedParticipants(current);
 }
-
 export function buildBookingDateQuestion(serviceName: string, visitorText: string): string {
   if (/\p{Script=Cyrillic}/u.test(visitorText)) {
     return `Для записи на «${serviceName}» укажите, пожалуйста, дату.`;
