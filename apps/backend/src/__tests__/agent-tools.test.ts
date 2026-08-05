@@ -36,7 +36,7 @@ vi.mock('../services/business-hours.js', () => ({
 }));
 
 import { prisma } from '../db/prisma.js';
-import { findAvailableSlots } from '../services/slot-finder.js';
+import { findAvailableSlots, parseBusinessDateTime } from '../services/slot-finder.js';
 import { getActiveServicesForSpecialist } from '../services/specialist-services.js';
 import { AGENT_TOOLS, executeTool } from '../services/agent-tools.js';
 
@@ -193,6 +193,66 @@ describe('booking date guard', () => {
 
     expect(JSON.parse(toolResult.result)).toMatchObject({
       error: 'EXPLICIT_SLOT_SELECTION_REQUIRED',
+    });
+  });
+  it('allows contact collection after the visitor selected a slot in an earlier message', async () => {
+    vi.clearAllMocks();
+    vi.mocked(parseBusinessDateTime).mockReturnValue(new Date('2026-08-07T06:00:00.000Z'));
+    const toolResult = await executeTool(
+      'create_appointment_request',
+      {
+        specialist_name: 'Ева',
+        service_name: 'Face practice',
+        starts_at: '2026-08-07 09:00',
+        name: 'Сергей',
+        phone: '+375290000004',
+      },
+      {
+        sessionId: 'session-1',
+        agentId: 'agent-1',
+        tenantId: 'tenant-1',
+        bookingContext: {
+          serviceId: 'face-practice',
+          serviceName: 'Face practice',
+          needsDate: false,
+          selectedSlot: true,
+        },
+        visitorText: 'Сергей +375290000004',
+      },
+    );
+
+    expect(JSON.parse(toolResult.result)).not.toMatchObject({
+      error: 'EXPLICIT_SLOT_SELECTION_REQUIRED',
+    });
+  });
+  it('blocks creation when the requested time differs from the visitor-selected slot', async () => {
+    vi.clearAllMocks();
+    const toolResult = await executeTool(
+      'create_appointment_request',
+      {
+        specialist_name: 'Ева',
+        service_name: 'Face practice',
+        starts_at: '2026-08-07 12:00',
+        name: 'Сергей',
+        phone: '+375290000004',
+      },
+      {
+        sessionId: 'session-1',
+        agentId: 'agent-1',
+        tenantId: 'tenant-1',
+        bookingContext: {
+          serviceId: 'face-practice',
+          serviceName: 'Face practice',
+          needsDate: false,
+          selectedSlot: true,
+          selectedSlotTime: '09:00',
+        },
+        visitorText: 'Сергей +375290000004',
+      },
+    );
+
+    expect(JSON.parse(toolResult.result)).toMatchObject({
+      error: 'SELECTED_SLOT_TIME_MISMATCH',
     });
   });
   it('blocks appointment creation for a newly selected service until the visitor gives a date', async () => {
