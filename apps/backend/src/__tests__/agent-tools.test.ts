@@ -137,3 +137,61 @@ it('finds slots for every compatible specialist when only service and date are g
     'Europe/Minsk',
   );
 });
+
+describe('booking date guard', () => {
+  it('blocks slot lookup for a newly selected service until the visitor gives a date', async () => {
+    vi.clearAllMocks();
+    const toolResult = await executeTool(
+      'find_available_slots',
+      {
+        specialist_name: 'Ева',
+        service_name: 'Face practice',
+        date_from: '2026-08-06',
+        date_to: '2026-08-06',
+      },
+      {
+        sessionId: 'session-1',
+        agentId: 'agent-1',
+        tenantId: 'tenant-1',
+        bookingContext: {
+          serviceId: 'face-practice',
+          serviceName: 'Face practice',
+          needsDate: true,
+        },
+      },
+    );
+
+    expect(JSON.parse(toolResult.result)).toMatchObject({
+      error: 'DATE_REQUIRED_FOR_NEW_SERVICE',
+    });
+    expect(findAvailableSlots).not.toHaveBeenCalled();
+  });
+
+  it('blocks appointment creation for a newly selected service until the visitor gives a date', async () => {
+    vi.clearAllMocks();
+    const toolResult = await executeTool(
+      'create_appointment_request',
+      {
+        specialist_name: 'Ева',
+        service_name: 'Face practice',
+        starts_at: '2026-08-06 10:00',
+        name: 'Сергей',
+        phone: '+375290000004',
+      },
+      {
+        sessionId: 'session-1',
+        agentId: 'agent-1',
+        tenantId: 'tenant-1',
+        bookingContext: {
+          serviceId: 'face-practice',
+          serviceName: 'Face practice',
+          needsDate: true,
+        },
+      },
+    );
+
+    expect(JSON.parse(toolResult.result)).toMatchObject({
+      error: 'DATE_REQUIRED_FOR_NEW_SERVICE',
+    });
+  });
+});

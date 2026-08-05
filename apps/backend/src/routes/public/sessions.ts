@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import type { ServerResponse } from 'node:http';
 import { createHash } from 'node:crypto';
 import { z } from 'zod';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../db/prisma.js';
 import { retrieve } from '../../services/retriever.js';
 import { buildMessages } from '../../services/prompt-builder.js';
@@ -24,6 +25,7 @@ import { summarizeError } from '../../services/error-sanitizer.js';
 import { isOriginAllowed } from '../../services/origin-policy.js';
 import { isExplicitHandoffRequest } from '../../services/handoff-intent.js';
 import { publishToOperators } from '../../services/realtime-hub.js';
+import { deriveBookingContext, parseBookingContext } from '../../services/booking-context.js';
 
 // ── Constants ────────────────────────────────────────────────────────────────
 
@@ -322,6 +324,12 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      const activeServices = await prisma.service.findMany({
+        where: { tenantId: session.agent.tenantId, isActive: true },
+        select: { id: true, name: true },
+      });
+      const bookingContext = deriveBookingContext(session.bookingContext, text, activeServices);
+      const bookingDateRequired = bookingContext?.needsDate === true;
       // Save user message
       const visitorMessage = await prisma.message.create({
         data: { sessionId, role: 'USER', content: text, authorType: 'VISITOR' },
@@ -334,6 +342,9 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
         data: {
           unreadByOperator: { increment: 1 },
           lastActiveAt: new Date(),
+          bookingContext: bookingContext
+            ? (bookingContext as unknown as Prisma.InputJsonObject)
+            : Prisma.JsonNull,
         },
       });
       publishToOperators(session.agent.tenantId, {
@@ -426,7 +437,10 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
           })),
           summary: session.summary,
           userText: text,
-          businessHoursContext,
+          businessHoursContext: bookingDateRequired
+            ? businessHoursContext +
+              '\n\n## Booking state\n\nThe visitor changed to a new service and has not supplied a date. Ask only which date they want. Do not ask for contact details, participant count, confirmation, or call booking tools until they provide a date.'
+            : businessHoursContext,
         });
 
         // Resolve LLM API key
@@ -542,6 +556,7 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
               sessionId,
               agentId: agent.id,
               tenantId: session.agent.tenantId,
+              bookingContext: parseBookingContext(bookingContext),
             });
 
             if (toolResult.sideEffect === 'handoff_requested') {
