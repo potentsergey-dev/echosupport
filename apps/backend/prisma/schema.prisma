@@ -24,7 +24,6 @@ model User {
   email        String   @unique
   passwordHash String
   role         UserRole @default(OWNER)
-  accessExpiresAt DateTime?
   createdAt    DateTime @default(now())
   tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
 }
@@ -33,34 +32,9 @@ enum UserRole {
   OWNER
   ADMIN
   OPERATOR
-  DEMO_VIEWER
 }
 
 // ─────────────────────────────────────────────────────────────
-enum DemoAccessRequestStatus {
-  PENDING
-  APPROVED
-  REJECTED
-  REVOKED
-}
-
-model DemoAccessRequest {
-  id           String                  @id @default(cuid())
-  name         String
-  email        String
-  company      String?
-  purpose      String
-  status       DemoAccessRequestStatus @default(PENDING)
-  processedAt  DateTime?
-  processedBy  String?
-  accessUserId String?
-  expiresAt    DateTime?
-  createdAt    DateTime                @default(now())
-
-  @@index([status, createdAt])
-  @@index([email, createdAt])
-}
-
 // Agent
 // ─────────────────────────────────────────────────────────────
 
@@ -490,4 +464,5 @@ enum AppointmentSource {
   AGENT
   OPERATOR
 }
+
 

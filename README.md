@@ -140,7 +140,3 @@ plans           Architecture and historical design documents
 
 [MIT](LICENSE). You may self-host and modify EchoSupport. Third-party AI, speech, and
 hosting providers have their own pricing and terms.
-
-## Controlled demo access
-
-The public demo and the internal panel have separate access paths. Use [the controlled demo access runbook](docs/controlled-demo-access.md) to review requests, issue short-lived view-only invitations, and revoke them.
