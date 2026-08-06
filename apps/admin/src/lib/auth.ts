@@ -33,11 +33,3 @@ export function isAdminRole(): boolean {
   const role = getRole();
   return role === 'OWNER' || role === 'ADMIN';
 }
-
-export function isOwnerRole(): boolean {
-  return getRole() === 'OWNER';
-}
-
-export function isDemoViewerRole(): boolean {
-  return getRole() === 'DEMO_VIEWER';
-}

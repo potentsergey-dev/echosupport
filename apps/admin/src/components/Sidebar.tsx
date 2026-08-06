@@ -11,12 +11,11 @@ import {
   UsersIcon,
   LayersIcon,
   StarIcon,
-  ShieldCheckIcon,
   LockIcon,
   UnlockIcon,
 } from 'lucide-react';
 import { listAgents, createAgent, listInboxSessions } from '../lib/api';
-import { clearToken, clearRole, isAdminRole, isOwnerRole } from '../lib/auth';
+import { clearToken, clearRole, isAdminRole } from '../lib/auth';
 import { clearWorkingMode, useWorkingMode } from '../lib/working-mode';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
@@ -96,7 +95,6 @@ export function Sidebar({ activeAgentId }: { activeAgentId?: string | undefined 
   const qc = useQueryClient();
   const [showNewModal, setShowNewModal] = useState(false);
   const isAdmin = isAdminRole();
-  const isOwner = isOwnerRole();
   const [workingMode, setWorkingMode] = useWorkingMode();
   const canUseWorkingMode = isAdmin && !isLiteEdition;
   const showConfiguration = isAdmin && (isLiteEdition || !workingMode);
@@ -245,16 +243,6 @@ export function Sidebar({ activeAgentId }: { activeAgentId?: string | undefined 
                 )}
               </Link>
             ))}
-          {isOwner && (
-            <Link
-              to="/demo-access"
-              className={navClass(location.pathname.startsWith('/demo-access'))}
-            >
-              <ShieldCheckIcon size={16} className="shrink-0" />
-              <span className="flex-1">Доступ к демо</span>
-            </Link>
-          )}
-
           {showConfiguration && agents.length === 0 && (
             <p className="px-3 py-4 text-xs text-gray-400">Нет агентов. Создайте первого!</p>
           )}

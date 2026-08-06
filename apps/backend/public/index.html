@@ -387,36 +387,6 @@
 
       .pain-item,
       .workflow-item,
-      .access-form {
-        display: grid;
-        gap: 14px;
-      }
-      .access-form label {
-        display: grid;
-        gap: 6px;
-        font-size: 0.88rem;
-        font-weight: 700;
-        color: #24304e;
-      }
-      .access-form label span {
-        font-weight: 400;
-        color: #64748b;
-      }
-      .access-form input,
-      .access-form textarea {
-        width: 100%;
-        border: 1px solid #cbd5e1;
-        border-radius: 10px;
-        padding: 10px 12px;
-        font: inherit;
-        color: #172554;
-        background: #fff;
-      }
-      .access-form input:focus,
-      .access-form textarea:focus {
-        outline: 3px solid rgba(99, 102, 241, 0.22);
-        border-color: #6366f1;
-      }
       .try-panel {
         border: 1px solid var(--line);
         border-radius: 8px;
@@ -476,36 +446,6 @@
         align-items: stretch;
       }
 
-      .access-form {
-        display: grid;
-        gap: 14px;
-      }
-      .access-form label {
-        display: grid;
-        gap: 6px;
-        font-size: 0.88rem;
-        font-weight: 700;
-        color: #24304e;
-      }
-      .access-form label span {
-        font-weight: 400;
-        color: #64748b;
-      }
-      .access-form input,
-      .access-form textarea {
-        width: 100%;
-        border: 1px solid #cbd5e1;
-        border-radius: 10px;
-        padding: 10px 12px;
-        font: inherit;
-        color: #172554;
-        background: #fff;
-      }
-      .access-form input:focus,
-      .access-form textarea:focus {
-        outline: 3px solid rgba(99, 102, 241, 0.22);
-        border-color: #6366f1;
-      }
       .try-panel {
         padding: 26px;
       }
@@ -699,7 +639,7 @@
       <nav class="nav-actions" aria-label="Primary navigation">
         <a href="#workflow">Workflow</a>
         <a href="#try">Try questions</a>
-        <a class="primary-link" href="#panel-access">Panel access</a>
+        <a class="primary-link" href="/admin">Admin demo</a>
       </nav>
     </header>
 
@@ -764,7 +704,7 @@
         </p>
         <div class="hero-actions">
           <a class="button primary" href="#try">Try the live widget</a>
-          <a class="button secondary" href="#panel-access">Request panel access</a>
+          <a class="button secondary" href="/admin">Open admin demo</a>
         </div>
         <div class="hero-metrics" aria-label="Product highlights">
           <div class="metric">
@@ -916,80 +856,6 @@
         </div>
       </section>
 
-      <section id="panel-access" aria-labelledby="panel-access-title">
-        <div class="try-demo">
-          <div class="try-panel accent">
-            <div class="section-head">
-              <h2 id="panel-access-title">Request read-only panel access.</h2>
-              <p>
-                The live agent is public. The internal workspace is protected: it contains real
-                conversation context and is never opened with a shared administrator password.
-              </p>
-            </div>
-            <div class="demo-flow">
-              <div class="flow-step">
-                <span class="step-number">1</span>
-                <div>
-                  <strong>Send a short request</strong
-                  ><span>Tell us who you are and what you want to evaluate.</span>
-                </div>
-              </div>
-              <div class="flow-step">
-                <span class="step-number">2</span>
-                <div>
-                  <strong>We review it</strong
-                  ><span>The demo owner chooses whether and how long to grant access.</span>
-                </div>
-              </div>
-              <div class="flow-step">
-                <span class="step-number">3</span>
-                <div>
-                  <strong>Receive a temporary invite</strong
-                  ><span
-                    >It is read-only, expires automatically, and can be revoked at any time.</span
-                  >
-                </div>
-              </div>
-            </div>
-          </div>
-          <div class="try-panel">
-            <form id="demo-access-form" class="access-form">
-              <label
-                >Your name<input
-                  name="name"
-                  required
-                  minlength="2"
-                  maxlength="100"
-                  autocomplete="name"
-              /></label>
-              <label
-                >Work email<input
-                  name="email"
-                  type="email"
-                  required
-                  maxlength="254"
-                  autocomplete="email"
-              /></label>
-              <label
-                >Company <span>(optional)</span
-                ><input name="company" maxlength="100" autocomplete="organization"
-              /></label>
-              <label
-                >What would you like to evaluate?<textarea
-                  name="purpose"
-                  required
-                  minlength="10"
-                  maxlength="1000"
-                  rows="4"
-                  placeholder="For example: agent handoff and booking flow for our salon"
-                ></textarea>
-              </label>
-              <button class="button primary" type="submit">Request access</button>
-              <p class="copy-status" data-access-status role="status" aria-live="polite"></p>
-            </form>
-          </div>
-        </div>
-      </section>
       <section class="closing-band" aria-labelledby="closing-title">
         <div class="section-head">
           <h2 id="closing-title">
@@ -1001,7 +867,7 @@
           </p>
           <div class="hero-actions">
             <a class="button primary" href="#try">Ask the widget</a>
-            <a class="button secondary" href="#panel-access">Request panel access</a>
+            <a class="button secondary" href="/admin">View admin</a>
           </div>
         </div>
       </section>
@@ -1028,41 +894,6 @@
 
         var status = document.querySelector('.copy-status');
         var buttons = document.querySelectorAll('.question-button');
-        var accessForm = document.getElementById('demo-access-form');
-        var accessStatus = document.querySelector('[data-access-status]');
-
-        if (accessForm) {
-          accessForm.addEventListener('submit', function (event) {
-            event.preventDefault();
-            var submit = accessForm.querySelector('button[type="submit"]');
-            var data = Object.fromEntries(new FormData(accessForm).entries());
-            submit.disabled = true;
-            accessStatus.textContent = 'Sending your request…';
-            fetch('/api/v1/demo/access-requests', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(data),
-            })
-              .then(function (response) {
-                if (!response.ok)
-                  throw new Error(
-                    'We could not send the request. Please check the fields and try again.',
-                  );
-                return response.json();
-              })
-              .then(function () {
-                accessForm.reset();
-                accessStatus.textContent =
-                  'Request received. We will contact you if access is approved.';
-              })
-              .catch(function (error) {
-                accessStatus.textContent = error.message;
-              })
-              .finally(function () {
-                submit.disabled = false;
-              });
-          });
-        }
 
         buttons.forEach(function (button) {
           button.addEventListener('click', function () {
