@@ -13,6 +13,7 @@ import { env } from './config/env.js';
 import authPlugin from './plugins/auth.js';
 import authRoutes from './routes/auth/login.js';
 import agentRoutes from './routes/admin/agents.js';
+import demoAccessAdminRoutes from './routes/admin/demo-access.js';
 import documentRoutes from './routes/admin/documents.js';
 import jobRoutes from './routes/admin/jobs.js';
 import adminSessionRoutes from './routes/admin/sessions.js';
@@ -20,6 +21,7 @@ import businessHoursRoutes from './routes/admin/business-hours.js';
 import specialistsRoutes from './routes/admin/specialists.js';
 import servicesRoutes from './routes/admin/services.js';
 import publicSessionRoutes from './routes/public/sessions.js';
+import demoAccessPublicRoutes from './routes/public/demo-access.js';
 import internalCronRoutes from './routes/internal/cron.js';
 import operatorRoutes from './routes/operator/index.js';
 import wsRoutes from './routes/ws/index.js';
@@ -158,9 +160,11 @@ export async function buildServer() {
   await app.register(businessHoursRoutes, { prefix: '/api/v1/admin' });
   await app.register(specialistsRoutes, { prefix: '/api/v1/admin' });
   await app.register(servicesRoutes, { prefix: '/api/v1/admin' });
+  await app.register(demoAccessAdminRoutes, { prefix: '/api/v1/admin' });
 
   // Public routes (widget / chat — authenticated via X-Agent-Key)
   await app.register(publicSessionRoutes, { prefix: '/api/v1/public' });
+  await app.register(demoAccessPublicRoutes, { prefix: '/api/v1/demo' });
 
   // Operator routes (inbox, handoff, canned responses — requires JWT + operator role)
   await app.register(operatorRoutes, { prefix: '/api/v1/operator' });

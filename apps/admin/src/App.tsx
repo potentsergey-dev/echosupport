@@ -11,8 +11,10 @@ import { SpecialistsPage } from './pages/SpecialistsPage';
 import { ServicesPage } from './pages/ServicesPage';
 import { AppointmentsPage } from './pages/AppointmentsPage';
 import { CsatPage } from './pages/CsatPage';
+import { DemoAccessPage } from './pages/DemoAccessPage';
+import { DemoViewerPage } from './pages/DemoViewerPage';
 import { isLiteEdition } from './lib/app-edition';
-import { isAdminRole } from './lib/auth';
+import { isAdminRole, isDemoViewerRole } from './lib/auth';
 import { useWorkingMode } from './lib/working-mode';
 
 function ConfigurationRoute({ children }: { children: React.ReactNode }) {
@@ -23,11 +25,22 @@ function ConfigurationRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 export function App() {
+  if (isDemoViewerRole()) return <DemoViewerPage />;
   return (
     <QueryClientProvider client={queryClient}>
       <BrowserRouter basename="/admin">
         <Routes>
           <Route path="/login" element={<LoginPage />} />
+          <Route
+            path="/demo-access"
+            element={
+              <ProtectedRoute>
+                <Layout>
+                  <DemoAccessPage />
+                </Layout>
+              </ProtectedRoute>
+            }
+          />
           <Route
             path="/agents"
             element={
