@@ -1,12 +1,40 @@
 import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { CopyIcon, CheckIcon } from 'lucide-react';
+import { CopyIcon, CheckIcon, ExternalLinkIcon } from 'lucide-react';
 import { getEmbedSnippet } from '../lib/api';
 import { Button } from '../components/ui/Button';
+import { Input } from '../components/ui/Input';
+
+const SOCIAL_SOURCES = [
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'tiktok', label: 'TikTok' },
+  { value: 'youtube', label: 'YouTube' },
+  { value: 'telegram', label: 'Telegram' },
+  { value: 'vk', label: 'VK' },
+  { value: 'ads', label: 'Реклама' },
+  { value: 'directory', label: 'Каталог / профиль' },
+];
+
+function createSocialLaunchLink(pageUrl: string, source: string, scenario: string): string | null {
+  try {
+    const url = new URL(pageUrl.trim());
+    if (url.protocol !== 'https:' && url.protocol !== 'http:') return null;
+    url.searchParams.set('chat', 'open');
+    url.searchParams.set('source', source);
+    if (scenario.trim()) url.searchParams.set('scenario', scenario.trim());
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
 
 export function EmbedPage({ agentId }: { agentId: string }) {
   const [copied, setCopied] = useState(false);
   const [copiedKey, setCopiedKey] = useState(false);
+  const [socialPageUrl, setSocialPageUrl] = useState('');
+  const [socialSource, setSocialSource] = useState('instagram');
+  const [socialScenario, setSocialScenario] = useState('');
+  const [copiedSocialLink, setCopiedSocialLink] = useState(false);
 
   const { data, isLoading, error } = useQuery<{
     snippet: string;
@@ -16,6 +44,8 @@ export function EmbedPage({ agentId }: { agentId: string }) {
     queryKey: ['embed-snippet', agentId],
     queryFn: () => getEmbedSnippet(agentId),
   });
+
+  const socialLink = createSocialLaunchLink(socialPageUrl, socialSource, socialScenario);
 
   async function handleCopy() {
     if (!data?.snippet) return;
@@ -29,6 +59,13 @@ export function EmbedPage({ agentId }: { agentId: string }) {
     await navigator.clipboard.writeText(data.agentKey);
     setCopiedKey(true);
     setTimeout(() => setCopiedKey(false), 2000);
+  }
+
+  async function handleCopySocialLink() {
+    if (!socialLink) return;
+    await navigator.clipboard.writeText(socialLink);
+    setCopiedSocialLink(true);
+    setTimeout(() => setCopiedSocialLink(false), 2000);
   }
 
   return (
@@ -122,6 +159,98 @@ export function EmbedPage({ agentId }: { agentId: string }) {
           </div>
         )}
       </section>
+
+      {data?.snippet && (
+        <section className="rounded-xl border border-violet-200 bg-violet-50 p-6">
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 rounded-lg bg-violet-100 p-2 text-violet-700">
+              <ExternalLinkIcon size={18} />
+            </div>
+            <div>
+              <h3 className="text-base font-semibold text-violet-950">
+                Ссылки для соцсетей и рекламы
+              </h3>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-violet-900">
+                Instagram, TikTok, YouTube, Telegram, VK и рекламные площадки не позволяют вставить
+                JavaScript-виджет в профиль или публикацию. Разместите ссылку на страницу вашего
+                сайта, где виджет уже установлен: он откроется автоматически.
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <label className="block text-sm font-medium text-violet-950">
+              Страница сайта с установленным виджетом
+              <Input
+                className="mt-1 border-violet-200 bg-white"
+                type="url"
+                inputMode="url"
+                placeholder="https://example.com/consultation"
+                value={socialPageUrl}
+                onChange={(event) => setSocialPageUrl(event.target.value)}
+              />
+            </label>
+            <label className="block text-sm font-medium text-violet-950">
+              Канал перехода
+              <select
+                className="mt-1 block w-full rounded-lg border border-violet-200 bg-white px-3 py-2 text-sm text-gray-900 shadow-sm transition focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                value={socialSource}
+                onChange={(event) => setSocialSource(event.target.value)}
+              >
+                {SOCIAL_SOURCES.map((source) => (
+                  <option key={source.value} value={source.value}>
+                    {source.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block text-sm font-medium text-violet-950 md:col-span-2">
+              Сценарий кампании <span className="font-normal text-violet-700">(необязательно)</span>
+              <Input
+                className="mt-1 border-violet-200 bg-white"
+                placeholder="booking, consultation, sale"
+                maxLength={80}
+                value={socialScenario}
+                onChange={(event) => setSocialScenario(event.target.value)}
+              />
+            </label>
+          </div>
+
+          <div className="mt-4 rounded-lg border border-violet-200 bg-white p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-violet-700">
+              Готовая ссылка
+            </p>
+            {socialLink ? (
+              <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <code className="break-all text-sm text-gray-800">{socialLink}</code>
+                <Button size="sm" onClick={() => void handleCopySocialLink()}>
+                  {copiedSocialLink ? <CheckIcon size={14} /> : <CopyIcon size={14} />}
+                  {copiedSocialLink ? 'Скопировано!' : 'Копировать ссылку'}
+                </Button>
+              </div>
+            ) : (
+              <p className="mt-2 text-sm text-gray-600">
+                Введите полный адрес страницы, начиная с https://.
+              </p>
+            )}
+          </div>
+
+          <ol className="mt-4 list-decimal space-y-1 pl-5 text-sm leading-6 text-violet-950">
+            <li>
+              Сначала установите виджет на указанную страницу и добавьте её домен в «Профиль».
+            </li>
+            <li>
+              Скопируйте готовую ссылку в bio, публикацию, рекламное объявление или кнопку профиля.
+            </li>
+            <li>
+              Параметр <code className="font-mono">chat=open</code> открывает чат;{' '}
+              <code className="font-mono">source</code> и{' '}
+              <code className="font-mono">scenario</code> сохраняются в URL страницы в контексте
+              обращения и подходят для внешней аналитики.
+            </li>
+          </ol>
+        </section>
+      )}
     </div>
   );
 }
