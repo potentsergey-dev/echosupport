@@ -26,6 +26,10 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(401).send({ error: 'Invalid credentials' });
       }
 
+      if (user.accessExpiresAt && user.accessExpiresAt <= new Date()) {
+        return reply.status(401).send({ error: 'Access has expired' });
+      }
+
       const valid = await compare(password, user.passwordHash);
       if (!valid) {
         return reply.status(401).send({ error: 'Invalid credentials' });
