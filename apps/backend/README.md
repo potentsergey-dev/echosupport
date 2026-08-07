@@ -26,7 +26,7 @@ cp apps/backend/.env.example apps/backend/.env
 pnpm db:migrate
 ```
 
-4. Seed demo data (dev only). The seed requires `ADMIN_EMAIL` and `ADMIN_PASSWORD`
+4. Seed starter data (dev only). The seed requires `ADMIN_EMAIL` and `ADMIN_PASSWORD`
    with at least 12 characters:
 
 ```bash
@@ -58,10 +58,10 @@ curl http://localhost:3000/api/v1/health
 | `pnpm typecheck`         | Type-check without emitting        |
 | `pnpm db:migrate`        | Run Prisma migrations (dev)        |
 | `pnpm db:migrate:deploy` | Run Prisma migrations (production) |
-| `pnpm db:seed`           | Seed demo data                     |
+| `pnpm db:seed`           | Seed starter data                  |
 | `pnpm db:studio`         | Open Prisma Studio                 |
 | `pnpm test`              | Run unit tests                     |
 
-## Demo credentials
+## Initial owner credentials
 
 The seed creates or updates the initial owner from `ADMIN_EMAIL` and `ADMIN_PASSWORD`.

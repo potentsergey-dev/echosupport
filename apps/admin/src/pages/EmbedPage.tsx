@@ -151,7 +151,7 @@ export function EmbedPage({ agentId }: { agentId: string }) {
             <h4 className="mb-2 text-sm font-semibold text-gray-900">Локальная проверка</h4>
             <p className="text-sm text-gray-600">
               Запустите <code className="font-mono">pnpm --filter @echosupport/widget dev</code> и
-              откройте demo с этим ключом:
+              откройте локальный предпросмотр с этим ключом:
             </p>
             <pre className="mt-2 overflow-x-auto rounded bg-white p-3 text-xs text-gray-700">
               <code>{`http://localhost:5173/demo.html?agentKey=${data.agentKey}&apiBase=${data.publicBaseUrl}`}</code>

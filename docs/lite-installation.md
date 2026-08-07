@@ -59,7 +59,7 @@ Use this checklist after the Lite stack is running and `/admin` opens.
 
 1. Open the agent
 
-   Go to `/admin`, sign in, and open `Demo Agent` in the left sidebar. If you created a new
+   Go to `/admin`, sign in, and open `Starter Agent` in the left sidebar. If you created a new
    agent instead, open that agent. In Lite you should see only four tabs: Profile, API keys,
    Knowledge base, and Embed.
 
