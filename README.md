@@ -58,9 +58,9 @@ Run the user-facing install smoke against a running stack:
 SMOKE_BASE_URL=http://localhost:8080 pnpm smoke:install
 ```
 
-After login, open the `Demo Agent`, review the Profile, API keys, Knowledge base, and
+After login, open the `Starter Agent`, review the Profile, API keys, Knowledge base, and
 Embed tabs, then copy the public key shown in the agent header. Run
-`pnpm --filter @echosupport/widget dev` and open the Vite demo URL with query parameters:
+`pnpm --filter @echosupport/widget dev` and open the local widget preview URL with query parameters:
 
 ```text
 http://localhost:5173/demo.html?agentKey=pk_your_agent_key&apiBase=http://localhost:8080
@@ -86,7 +86,7 @@ Set `APP_EDITION=lite` before building when you want a simpler knowledge-base as
 - [Configuration reference](docs/configuration.md)
 - [Lite Installation](docs/lite-installation.md)
 - [Release Checklist](docs/release-checklist.md)
-- [Demo to Main Release Transfer](docs/demo-to-main-release.md)
+- [Product and demo boundary](docs/demo-boundary.md)
 - [Local Models and OpenAI-Compatible Endpoints](docs/local-models.md)
 - [Create an agent and embed the widget](docs/agent-setup.md)
 - [Upgrade and backup](docs/upgrade.md)

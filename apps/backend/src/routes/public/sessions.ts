@@ -23,7 +23,6 @@ import {
 import { csatSubmissionSchema } from '../../services/csat.js';
 import { summarizeError } from '../../services/error-sanitizer.js';
 import { isOriginAllowed } from '../../services/origin-policy.js';
-import { isExplicitHandoffRequest } from '../../services/handoff-intent.js';
 import { publishToOperators } from '../../services/realtime-hub.js';
 import {
   buildBookingDateQuestion,
@@ -517,15 +516,6 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
         // Mutable messages for tool-call loop
         const llmMessages = [...messages] as ChatMessage[];
         let endedWithToolCalls = false;
-
-        if (env.ECHOSUPPORT_DEMO_MARKETING_SEED === 'true' && isExplicitHandoffRequest(text)) {
-          const toolResult = await executeTool(
-            'request_handoff',
-            { reason: 'Visitor explicitly requested a human operator in the demo widget.' },
-            { sessionId, agentId: agent.id, tenantId: agent.tenantId },
-          );
-          handoffSideEffect = toolResult.sideEffect === 'handoff_requested';
-        }
 
         for (let round = 0; round < 5; round++) {
           const isFirstRound = round === 0;

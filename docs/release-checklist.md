@@ -8,7 +8,7 @@ Use this checklist before publishing a GitHub release or handing a build to user
 - Confirm the working tree is clean.
 - Confirm release notes mention database migrations, user-visible changes, and upgrade notes.
 - Confirm `.env.example`, `docs/configuration.md`, and Docker Compose describe every required runtime variable.
-- Confirm `docs/demo-to-main-release.md` matches the current repository layout and transfer method.
+- Confirm `docs/demo-boundary.md` matches the current product and private-demo boundary.
 
 ## 2. Automated Checks
 

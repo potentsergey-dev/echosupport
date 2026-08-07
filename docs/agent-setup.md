@@ -1,7 +1,7 @@
 # Agent Setup
 
 1. Sign in to `/admin`.
-2. Open the seeded `Demo Agent` from the sidebar or create a new agent with a clear name and
+2. Open the seeded `Starter Agent` from the sidebar or create a new agent with a clear name and
    system prompt.
 3. On the Profile tab, select the model, interface language, session lifetime, and allowed website
    origins.

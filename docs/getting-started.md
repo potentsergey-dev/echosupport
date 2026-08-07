@@ -55,7 +55,7 @@ in `.env` and restarting the backend rotates that account's password.
 ## 5. Verify
 
 Sign in with `ADMIN_EMAIL` and `ADMIN_PASSWORD` from `.env`. Compose automatically creates
-a demo tenant, the initial owner, and a `Demo Agent`. Open that agent from the sidebar and
+a default workspace, the initial owner, and a `Starter Agent`. Open that agent from the sidebar and
 work through these tabs:
 
 1. Profile: check the greeting, model, interface language, session TTL, and allowed website origins.
@@ -87,7 +87,7 @@ To smoke-test public session creation too, add an agent public key from the Embe
 SMOKE_BASE_URL=http://localhost:8080 SMOKE_AGENT_KEY=pk_your_agent_key pnpm smoke:install
 ```
 
-For the local widget demo, add `http://localhost:5173` to the agent's allowed origins on
+For a local widget preview, add `http://localhost:5173` to the agent's allowed origins on
 the Profile tab. Then open the Embed tab, copy the public agent key, and run:
 
 ```bash
