@@ -475,9 +475,8 @@ describe('booking selection continuity', () => {
       },
     );
 
-    expect(JSON.parse(toolResult.result)).not.toMatchObject({
-      error: expect.stringContaining('date_from'),
-    });
+    const payload = JSON.parse(toolResult.result) as { error?: string };
+    expect(payload.error ?? '').not.toContain('date_from');
     expect(findAvailableSlots).toHaveBeenCalledWith(
       'anna',
       'signature-cut',
