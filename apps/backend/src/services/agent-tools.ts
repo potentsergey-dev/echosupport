@@ -46,7 +46,7 @@ function russianNameForms(name: string): string[] {
 
   if (/а$/i.test(trimmed)) {
     const stem = trimmed.slice(0, -1);
-    return [trimmed, `${stem}е`, `${stem}у`, `${stem}ой`];
+    return [trimmed, `${stem}ы`, `${stem}е`, `${stem}у`, `${stem}ой`];
   }
   if (/я$/i.test(trimmed)) {
     const stem = trimmed.slice(0, -1);
@@ -74,6 +74,11 @@ function normalizeBookingLookup(value: string): string {
     .replace(/ё/g, 'е')
     .replace(/[^\p{L}\p{N}]+/gu, ' ')
     .trim();
+}
+
+function addDaysToDateKey(dateKey: string, days: number): string {
+  const [year, month, day] = dateKey.split('-').map(Number);
+  return new Date(Date.UTC(year!, month! - 1, day! + days)).toISOString().slice(0, 10);
 }
 
 // ── Tool schemas (OpenAI function-calling format) ─────────────────────────────
@@ -212,8 +217,12 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
             description:
               'Use for a relative visitor request. The server deterministically converts weeks to Monday-Sunday in business time.',
           },
+          search_next_available: {
+            type: 'boolean',
+            description:
+              'Use only when the visitor asks which other dates or next available slots exist after a previous unavailable result. The server searches the next 14 local calendar days, so omit date_from and date_to.',
+          },
         },
-        required: ['date_from', 'date_to'],
       },
     },
   },
@@ -321,6 +330,24 @@ export interface ToolResult {
   /** Side effects that need to be communicated to the SSE layer */
   sideEffect?: 'handoff_requested';
   quickReplies?: string[];
+}
+
+function selectedBookingServiceMismatchResult(bookingContext: BookingContext): ToolResult {
+  return {
+    result: JSON.stringify({
+      error: 'SELECTED_SERVICE_MISMATCH',
+      instruction: `The visitor has already selected "${bookingContext.serviceName}". Keep that exact service and search for slots; do not ask for confirmation or switch to another service unless the visitor explicitly names one.`,
+    }),
+  };
+}
+
+function selectedBookingSpecialistMismatchResult(bookingContext: BookingContext): ToolResult {
+  return {
+    result: JSON.stringify({
+      error: 'SELECTED_SPECIALIST_MISMATCH',
+      instruction: `The visitor has already selected "${bookingContext.specialistName}". Keep that exact specialist and search for slots unless the visitor explicitly names another specialist.`,
+    }),
+  };
 }
 
 export async function executeTool(
@@ -554,25 +581,43 @@ export async function executeTool(
 
     case 'find_available_slots': {
       let specialistId = String(args['specialist_id'] ?? '').trim();
-      const specialistName = String(args['specialist_name'] ?? '').trim();
-      const serviceId = args['service_id'] ? String(args['service_id']).trim() : '';
-      const serviceName = String(args['service_name'] ?? '').trim();
+      let specialistName = String(args['specialist_name'] ?? '').trim();
+      let serviceId = args['service_id'] ? String(args['service_id']).trim() : '';
+      let serviceName = String(args['service_name'] ?? '').trim();
       let dateFrom = String(args['date_from'] ?? '');
       let dateTo = String(args['date_to'] ?? '');
+      const searchNextAvailable = args['search_next_available'] === true;
+      const selectedBooking = ctx.bookingContext;
+
+      if (selectedBooking) {
+        const suppliedDifferentService =
+          (serviceId && serviceId !== selectedBooking.serviceId) ||
+          (serviceName &&
+            normalizeBookingLookup(serviceName) !==
+              normalizeBookingLookup(selectedBooking.serviceName));
+        if (suppliedDifferentService) return selectedBookingServiceMismatchResult(selectedBooking);
+
+        serviceId = selectedBooking.serviceId;
+        serviceName = selectedBooking.serviceName;
+
+        if (selectedBooking.specialistId) {
+          if (specialistId && specialistId !== selectedBooking.specialistId) {
+            return selectedBookingSpecialistMismatchResult(selectedBooking);
+          }
+          specialistId = selectedBooking.specialistId;
+          specialistName = selectedBooking.specialistName ?? specialistName;
+        }
+      }
 
       if (needsNewBookingDate(ctx, serviceId || undefined, serviceName)) {
         return pendingBookingDateResult();
       }
 
-      if (
-        (!specialistId && !specialistName && !serviceId && !serviceName) ||
-        !dateFrom ||
-        !dateTo
-      ) {
+      if (!specialistId && !specialistName && !serviceId && !serviceName) {
         return {
           result: JSON.stringify({
             error:
-              'service_id or service_name, plus date_from and date_to, are required; include a specialist only when the visitor selected one',
+              'service_id or service_name, plus date_from and date_to, are required; use search_next_available only when the visitor asks for other available dates',
           }),
         };
       }
@@ -582,6 +627,30 @@ export async function executeTool(
         select: { tenantId: true },
       });
       if (!agent) return { result: JSON.stringify({ error: 'Agent not found' }) };
+
+      const timeZone = await getBusinessTimezone(ctx.agentId);
+      const now = new Date();
+      if (searchNextAvailable) {
+        const tomorrow = addDaysToDateKey(getZonedDateTimeParts(now, timeZone).dateKey, 1);
+        dateFrom = tomorrow;
+        dateTo = addDaysToDateKey(tomorrow, 13);
+      }
+      const relativeDateText = [ctx.visitorText, args['relative_date']].filter(Boolean).join(' ');
+      const relativeRange = searchNextAvailable
+        ? null
+        : resolveRelativeBookingDateRange(relativeDateText, now, timeZone);
+      if (relativeRange) {
+        dateFrom = relativeRange.dateFrom;
+        dateTo = relativeRange.dateTo;
+      }
+      if (!dateFrom || !dateTo) {
+        return {
+          result: JSON.stringify({
+            error:
+              'date_from and date_to are required unless the visitor asks for a supported relative date or other available dates',
+          }),
+        };
+      }
 
       const specialistWhere = {
         tenantId: agent.tenantId,
@@ -627,7 +696,6 @@ export async function executeTool(
           orderBy: { name: 'asc' },
         });
         const serviceLookup = normalizeBookingLookup(serviceName || serviceId);
-        const timeZone = await getBusinessTimezone(ctx.agentId);
         const availability = await Promise.all(
           candidates.map(async (candidate) => {
             const services = await getActiveServicesForSpecialist({
@@ -718,6 +786,36 @@ export async function executeTool(
         };
       }
 
+      if (!serviceId && serviceName) {
+        const serviceLookup = normalizeBookingLookup(serviceName);
+        const services = await getActiveServicesForSpecialist({
+          tenantId: agent.tenantId,
+          specialistId,
+        });
+        const matches = services.filter((service) => {
+          const normalizedName = normalizeBookingLookup(service.name);
+          return normalizedName === serviceLookup || normalizedName.includes(serviceLookup);
+        });
+        if (matches.length === 1) {
+          serviceId = matches[0]!.id;
+          serviceName = matches[0]!.name;
+        } else if (matches.length > 1) {
+          return {
+            result: JSON.stringify({
+              error: 'SERVICE_AMBIGUOUS',
+              specialist: { id: specialist.id, name: specialist.name, role: specialist.role },
+              services: matches.map(({ id, name, durationMin, priceLabel }) => ({
+                id,
+                name,
+                durationMin,
+                priceLabel,
+              })),
+              instruction: 'Ask the visitor to choose one exact service before checking slots.',
+            }),
+          };
+        }
+      }
+
       if (!serviceId) {
         const services = (
           await getActiveServicesForSpecialist({
@@ -739,22 +837,6 @@ export async function executeTool(
               'The specialist was found. Ask the visitor to choose a service before checking slots.',
           }),
         };
-      }
-
-      const timeZone = await getBusinessTimezone(ctx.agentId);
-      const now = new Date();
-      const lastVisitorMessage = await prisma.message.findFirst({
-        where: { sessionId: ctx.sessionId, authorType: 'VISITOR', isInternal: false },
-        orderBy: { createdAt: 'desc' },
-        select: { content: true },
-      });
-      const relativeDateText = [lastVisitorMessage?.content, args['relative_date']]
-        .filter(Boolean)
-        .join(' ');
-      const relativeRange = resolveRelativeBookingDateRange(relativeDateText, now, timeZone);
-      if (relativeRange) {
-        dateFrom = relativeRange.dateFrom;
-        dateTo = relativeRange.dateTo;
       }
 
       const bookableService = await getBookableServiceForSpecialist({
@@ -812,6 +894,22 @@ export async function executeTool(
         .slice(0, 20)
         .map((slot) => formatAvailableSlotForBusinessTime(slot, timeZone));
 
+      if (formattedSlots.length === 0) {
+        return {
+          result: JSON.stringify({
+            error: 'NO_SLOTS',
+            timeZone,
+            dateRange: { dateFrom, dateTo, kind: relativeRange?.kind ?? 'explicit' },
+            specialist: { id: specialist.id, name: specialist.name, role: specialist.role },
+            service: { id: bookableService.id, name: bookableService.name },
+            instruction: searchNextAvailable
+              ? 'There are no free slots for this specialist and service in the next 14 calendar days. Say that clearly without guessing why, then offer another specialist or a later date.'
+              : 'There are no free slots for this specialist and service in the requested date range. Say that clearly without guessing why. Offer to check other dates for the same specialist or another specialist; do not ask the visitor to confirm the already selected service.',
+          }),
+          quickReplies: ['Другой день', 'Другой специалист'],
+        };
+      }
+
       return {
         result: JSON.stringify({
           timeZone,
@@ -834,9 +932,9 @@ export async function executeTool(
 
     case 'create_appointment_request': {
       let specialistId = String(args['specialist_id'] ?? '').trim();
-      const specialistName = String(args['specialist_name'] ?? '').trim();
+      let specialistName = String(args['specialist_name'] ?? '').trim();
       let serviceId = args['service_id'] ? String(args['service_id']).trim() : undefined;
-      const serviceName = String(args['service_name'] ?? '').trim();
+      let serviceName = String(args['service_name'] ?? '').trim();
       const startsAtStr = String(args['starts_at'] ?? '');
       const name = String(args['name'] ?? '').trim();
       const phone = String(args['phone'] ?? '').trim();
@@ -850,6 +948,27 @@ export async function executeTool(
       const requestedParticipants = Number.isInteger(requestedParticipantsRaw)
         ? requestedParticipantsRaw
         : 1;
+      const selectedBooking = ctx.bookingContext;
+
+      if (selectedBooking) {
+        const suppliedDifferentService =
+          (serviceId && serviceId !== selectedBooking.serviceId) ||
+          (serviceName &&
+            normalizeBookingLookup(serviceName) !==
+              normalizeBookingLookup(selectedBooking.serviceName));
+        if (suppliedDifferentService) return selectedBookingServiceMismatchResult(selectedBooking);
+
+        serviceId = selectedBooking.serviceId;
+        serviceName = selectedBooking.serviceName;
+
+        if (selectedBooking.specialistId) {
+          if (specialistId && specialistId !== selectedBooking.specialistId) {
+            return selectedBookingSpecialistMismatchResult(selectedBooking);
+          }
+          specialistId = selectedBooking.specialistId;
+          specialistName = selectedBooking.specialistName ?? specialistName;
+        }
+      }
 
       if (needsNewBookingDate(ctx, serviceId, serviceName)) {
         return pendingBookingDateResult();
