@@ -26,6 +26,7 @@ import { isOriginAllowed } from '../../services/origin-policy.js';
 import { publishToOperators } from '../../services/realtime-hub.js';
 import {
   buildBookingDateQuestion,
+  buildBookingStateContext,
   deriveBookingContext,
   parseBookingContext,
 } from '../../services/booking-context.js';
@@ -331,7 +332,20 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
         where: { tenantId: session.agent.tenantId, isActive: true },
         select: { id: true, name: true },
       });
-      const bookingContext = deriveBookingContext(session.bookingContext, text, activeServices);
+      const activeSpecialists = await prisma.specialist.findMany({
+        where: {
+          tenantId: session.agent.tenantId,
+          isActive: true,
+          OR: [{ agentId: null }, { agentId: session.agent.id }],
+        },
+        select: { id: true, name: true },
+      });
+      const bookingContext = deriveBookingContext(
+        session.bookingContext,
+        text,
+        activeServices,
+        activeSpecialists,
+      );
       const bookingDateRequired = bookingContext?.needsDate === true;
       // Save user message
       const visitorMessage = await prisma.message.create({
@@ -469,6 +483,10 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
         const businessHoursContext = inHours
           ? `Current business date and time: ${now}. Operators are currently available. Use this date/time as the source of truth for relative dates such as today, tomorrow, and this week. Do not infer the current date from model memory. You may escalate to a human if needed.`
           : `Current business date and time: ${now}. This is OUTSIDE business hours. Use this date/time as the source of truth for relative dates such as today, tomorrow, and this week. Do not infer the current date from model memory. ${outOfHoursMsg ?? 'Operators are not available right now.'}. If the user needs human assistance, inform them and offer to collect their contact info for a callback.`;
+        const bookingStateContext = buildBookingStateContext(bookingContext);
+        const groupBookingContext = bookingContext?.groupParticipants
+          ? `## Group booking state\n\nThe visitor has already confirmed ${bookingContext.groupParticipants} group participant(s). Do not ask about participant count again. When creating this group appointment, pass group_participants=${bookingContext.groupParticipants}.`
+          : null;
 
         // Build prompt
         const messages = buildMessages({
@@ -480,13 +498,9 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
           })),
           summary: session.summary,
           userText: text,
-          businessHoursContext: bookingDateRequired
-            ? businessHoursContext +
-              '\n\n## Booking state\n\nThe visitor changed to a new service and has not supplied a date. Ask only which date they want. Do not ask for contact details, participant count, confirmation, or call booking tools until they provide a date.'
-            : bookingContext?.groupParticipants
-              ? businessHoursContext +
-                `\n\n## Booking state\n\nThe visitor has already confirmed ${bookingContext.groupParticipants} group participant(s). Do not ask about participant count again. When creating this group appointment, pass group_participants=${bookingContext.groupParticipants}.`
-              : businessHoursContext,
+          businessHoursContext: [businessHoursContext, bookingStateContext, groupBookingContext]
+            .filter(Boolean)
+            .join('\n\n'),
         });
 
         // Resolve LLM API key

@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 vi.mock('../db/prisma.js', () => ({
   prisma: {
     agent: { findUnique: vi.fn() },
-    specialist: { findMany: vi.fn() },
+    specialist: { findFirst: vi.fn(), findMany: vi.fn() },
   },
 }));
 
@@ -36,7 +36,11 @@ vi.mock('../services/business-hours.js', () => ({
 }));
 
 import { prisma } from '../db/prisma.js';
-import { findAvailableSlots, parseBusinessDateTime } from '../services/slot-finder.js';
+import {
+  findAvailableSlots,
+  getZonedDateTimeParts,
+  parseBusinessDateTime,
+} from '../services/slot-finder.js';
 import { getActiveServicesForSpecialist } from '../services/specialist-services.js';
 import { AGENT_TOOLS, executeTool } from '../services/agent-tools.js';
 
@@ -280,6 +284,254 @@ describe('booking date guard', () => {
 
     expect(JSON.parse(toolResult.result)).toMatchObject({
       error: 'DATE_REQUIRED_FOR_NEW_SERVICE',
+    });
+  });
+});
+
+describe('booking selection continuity', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('resolves a selected service by name before looking up a specialist’s slots', async () => {
+    vi.mocked(getZonedDateTimeParts).mockReturnValue({
+      dateKey: '2026-08-10',
+      dayOfWeek: 1,
+      minutes: 600,
+    });
+    vi.mocked(prisma.agent.findUnique).mockResolvedValueOnce({ tenantId: 'tenant-1' } as never);
+    vi.mocked(prisma.specialist.findMany).mockResolvedValueOnce([
+      { id: 'anna', name: 'Анна Левина', role: 'Колорист' },
+    ] as never);
+    vi.mocked(getActiveServicesForSpecialist)
+      .mockResolvedValueOnce([
+        {
+          id: 'signature-cut',
+          name: 'Signature cut',
+          durationMin: 90,
+          priceLabel: 'от 140 BYN',
+          isGroup: false,
+          capacity: 1,
+        },
+      ] as never)
+      .mockResolvedValueOnce([
+        {
+          id: 'signature-cut',
+          name: 'Signature cut',
+          durationMin: 90,
+          priceLabel: 'от 140 BYN',
+          isGroup: false,
+          capacity: 1,
+        },
+      ] as never);
+    vi.mocked(findAvailableSlots).mockResolvedValueOnce([
+      { startsAt: '2026-08-11T07:00:00.000Z', endsAt: '2026-08-11T08:30:00.000Z' },
+    ]);
+
+    const toolResult = await executeTool(
+      'find_available_slots',
+      {
+        specialist_name: 'Анны',
+        service_name: 'Signature cut',
+        date_from: '2026-08-11',
+        date_to: '2026-08-11',
+      },
+      { sessionId: 'session-1', agentId: 'agent-1', tenantId: 'tenant-1' },
+    );
+
+    const payload = JSON.parse(toolResult.result) as {
+      service?: { id: string; name: string };
+      error?: string;
+    };
+    expect(payload.error).toBeUndefined();
+    expect(payload.service).toMatchObject({ id: 'signature-cut', name: 'Signature cut' });
+    expect(findAvailableSlots).toHaveBeenCalledWith(
+      'anna',
+      'signature-cut',
+      '2026-08-11',
+      '2026-08-11',
+      'Europe/Minsk',
+    );
+  });
+
+  it('rejects an accidental switch away from the already selected service', async () => {
+    const toolResult = await executeTool(
+      'find_available_slots',
+      {
+        service_name: 'Dimensional color',
+        date_from: '2026-08-11',
+        date_to: '2026-08-11',
+      },
+      {
+        sessionId: 'session-1',
+        agentId: 'agent-1',
+        tenantId: 'tenant-1',
+        bookingContext: {
+          serviceId: 'signature-cut',
+          serviceName: 'Signature cut',
+          needsDate: false,
+        },
+      },
+    );
+
+    expect(JSON.parse(toolResult.result)).toMatchObject({ error: 'SELECTED_SERVICE_MISMATCH' });
+    expect(findAvailableSlots).not.toHaveBeenCalled();
+  });
+
+  it('searches the next 14 days for an alternative-date request using the saved selection', async () => {
+    vi.mocked(getZonedDateTimeParts).mockReturnValue({
+      dateKey: '2026-08-10',
+      dayOfWeek: 1,
+      minutes: 600,
+    });
+    vi.mocked(prisma.agent.findUnique).mockResolvedValueOnce({ tenantId: 'tenant-1' } as never);
+    vi.mocked(prisma.specialist.findFirst).mockResolvedValueOnce({
+      id: 'anna',
+      name: 'Анна Левина',
+      role: 'Колорист',
+    } as never);
+    vi.mocked(getActiveServicesForSpecialist).mockResolvedValueOnce([
+      {
+        id: 'signature-cut',
+        name: 'Signature cut',
+        durationMin: 90,
+        priceLabel: 'от 140 BYN',
+        isGroup: false,
+        capacity: 1,
+      },
+    ] as never);
+    vi.mocked(findAvailableSlots).mockResolvedValueOnce([
+      { startsAt: '2026-08-11T07:00:00.000Z', endsAt: '2026-08-11T08:30:00.000Z' },
+    ]);
+
+    const toolResult = await executeTool(
+      'find_available_slots',
+      { search_next_available: true },
+      {
+        sessionId: 'session-1',
+        agentId: 'agent-1',
+        tenantId: 'tenant-1',
+        visitorText: 'А какие есть даты?',
+        bookingContext: {
+          serviceId: 'signature-cut',
+          serviceName: 'Signature cut',
+          specialistId: 'anna',
+          specialistName: 'Анна Левина',
+          needsDate: false,
+          alternativeDatesRequested: true,
+        },
+      },
+    );
+
+    expect(JSON.parse(toolResult.result)).not.toMatchObject({ error: 'NO_SLOTS' });
+    expect(findAvailableSlots).toHaveBeenCalledWith(
+      'anna',
+      'signature-cut',
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      'Europe/Minsk',
+    );
+  });
+
+  it('resolves a relative week from the visitor message before requiring date fields', async () => {
+    vi.mocked(getZonedDateTimeParts).mockReturnValue({
+      dateKey: '2026-08-10',
+      dayOfWeek: 1,
+      minutes: 600,
+    });
+    vi.mocked(prisma.agent.findUnique).mockResolvedValueOnce({ tenantId: 'tenant-1' } as never);
+    vi.mocked(prisma.specialist.findFirst).mockResolvedValueOnce({
+      id: 'anna',
+      name: 'Анна Левина',
+      role: 'Колорист',
+    } as never);
+    vi.mocked(getActiveServicesForSpecialist).mockResolvedValueOnce([
+      {
+        id: 'signature-cut',
+        name: 'Signature cut',
+        durationMin: 90,
+        priceLabel: 'от 140 BYN',
+        isGroup: false,
+        capacity: 1,
+      },
+    ] as never);
+    vi.mocked(findAvailableSlots).mockResolvedValueOnce([
+      { startsAt: '2026-08-11T07:00:00.000Z', endsAt: '2026-08-11T08:30:00.000Z' },
+    ]);
+
+    const toolResult = await executeTool(
+      'find_available_slots',
+      {},
+      {
+        sessionId: 'session-1',
+        agentId: 'agent-1',
+        tenantId: 'tenant-1',
+        visitorText: 'на этой неделе',
+        bookingContext: {
+          serviceId: 'signature-cut',
+          serviceName: 'Signature cut',
+          specialistId: 'anna',
+          specialistName: 'Анна Левина',
+          needsDate: false,
+        },
+      },
+    );
+
+    expect(JSON.parse(toolResult.result)).not.toMatchObject({
+      error: expect.stringContaining('date_from'),
+    });
+    expect(findAvailableSlots).toHaveBeenCalledWith(
+      'anna',
+      'signature-cut',
+      expect.any(Date),
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+      'Europe/Minsk',
+    );
+  });
+
+  it('returns a precise no-slots result for the selected date without guessing why', async () => {
+    vi.mocked(getZonedDateTimeParts).mockReturnValue({
+      dateKey: '2026-08-10',
+      dayOfWeek: 1,
+      minutes: 600,
+    });
+    vi.mocked(prisma.agent.findUnique).mockResolvedValueOnce({ tenantId: 'tenant-1' } as never);
+    vi.mocked(prisma.specialist.findFirst).mockResolvedValueOnce({
+      id: 'anna',
+      name: 'Анна Левина',
+      role: 'Колорист',
+    } as never);
+    vi.mocked(getActiveServicesForSpecialist).mockResolvedValueOnce([
+      {
+        id: 'signature-cut',
+        name: 'Signature cut',
+        durationMin: 90,
+        priceLabel: 'от 140 BYN',
+        isGroup: false,
+        capacity: 1,
+      },
+    ] as never);
+    vi.mocked(findAvailableSlots).mockResolvedValueOnce([]);
+
+    const toolResult = await executeTool(
+      'find_available_slots',
+      { date_from: '2026-08-10', date_to: '2026-08-10' },
+      {
+        sessionId: 'session-1',
+        agentId: 'agent-1',
+        tenantId: 'tenant-1',
+        bookingContext: {
+          serviceId: 'signature-cut',
+          serviceName: 'Signature cut',
+          specialistId: 'anna',
+          specialistName: 'Анна Левина',
+          needsDate: false,
+        },
+      },
+    );
+
+    expect(JSON.parse(toolResult.result)).toMatchObject({
+      error: 'NO_SLOTS',
+      specialist: { name: 'Анна Левина' },
+      service: { name: 'Signature cut' },
     });
   });
 });
