@@ -480,7 +480,7 @@ describe('booking selection continuity', () => {
     expect(findAvailableSlots).toHaveBeenCalledWith(
       'anna',
       'signature-cut',
-      expect.any(Date),
+      expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
       'Europe/Minsk',
     );
