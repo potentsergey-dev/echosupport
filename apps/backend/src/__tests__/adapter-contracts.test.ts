@@ -11,7 +11,11 @@ vi.mock('../config/env.js', () => ({
   },
 }));
 
-import type { RealtimeSocket } from '../contracts/infrastructure.js';
+import type {
+  AuthWorkspaceAdapter,
+  RealtimeSocket,
+  StorageAdapter,
+} from '../contracts/infrastructure.js';
 import { localFileStorageAdapter } from '../adapters/storage/local-fs.js';
 import { noopMeteringSink } from '../services/metering.js';
 import {
@@ -83,5 +87,58 @@ describe('Community adapter contracts', () => {
         occurredAt: new Date(),
       }),
     ).resolves.toBeUndefined();
+  });
+
+  it('supports fake Cloud-style storage without local file paths', async () => {
+    const blobs = new Map<string, Buffer>();
+    const storage: StorageAdapter = {
+      async saveFile(namespaceId, filename, buffer) {
+        const key = `gcs://${namespaceId}/${filename}`;
+        blobs.set(key, buffer);
+        return key;
+      },
+      async readFile(storagePath) {
+        const buffer = blobs.get(storagePath);
+        if (!buffer) throw new Error('blob not found');
+        return buffer;
+      },
+      async deleteFile(storagePath) {
+        blobs.delete(storagePath);
+      },
+    };
+
+    const storagePath = await storage.saveFile('agent-1', 'doc.txt', Buffer.from('cloud bytes'));
+    expect(storagePath).toBe('gcs://agent-1/doc.txt');
+    await expect(storage.readFile(storagePath)).resolves.toEqual(Buffer.from('cloud bytes'));
+  });
+
+  it('supports fake realtime and auth-workspace adapters through their contracts', async () => {
+    const published: unknown[] = [];
+    const realtime = {
+      registerOperator: vi.fn(),
+      unregisterOperator: vi.fn(),
+      registerVisitor: vi.fn(),
+      unregisterVisitor: vi.fn(),
+      publishToOperators: vi.fn((_tenantId: string, event: unknown) => published.push(event)),
+      publishToVisitor: vi.fn(),
+    };
+    const authWorkspace: AuthWorkspaceAdapter = {
+      async authenticateRequest() {
+        return {
+          userId: 'user-1',
+          email: 'owner@example.com',
+          tenantId: 'tenant-1',
+          role: 'OWNER',
+        };
+      },
+      async assertWorkspaceAccess(context, workspaceId) {
+        expect(context.tenantId).toBe(workspaceId);
+      },
+    };
+
+    realtime.publishToOperators('tenant-1', { type: 'session:new' });
+    const context = await authWorkspace.authenticateRequest({} as never);
+    await expect(authWorkspace.assertWorkspaceAccess(context, 'tenant-1')).resolves.toBeUndefined();
+    expect(published).toEqual([{ type: 'session:new' }]);
   });
 });

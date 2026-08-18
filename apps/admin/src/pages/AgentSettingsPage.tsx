@@ -378,6 +378,56 @@ function ProfileBlock({ agent }: { agent: Agent }) {
 
 // ── Secrets Block ─────────────────────────────────────────────────────────────
 
+type SecretFieldKey =
+  | 'openrouterKey'
+  | 'openrouterEmbeddingKey'
+  | 'openaiKey'
+  | 'openaiEmbeddingKey'
+  | 'deepgramKey';
+
+interface SecretField {
+  key: SecretFieldKey;
+  label: string;
+  placeholder: string;
+  hint?: string;
+  lite?: boolean;
+}
+
+export const SECRET_FIELDS: SecretField[] = [
+  {
+    key: 'openrouterKey',
+    label: 'OpenRouter / compatible API Key (чат)',
+    placeholder: 'sk-or-...',
+    hint: 'Используется для генерации ответов через OpenRouter или compatible endpoint. Для Ollama можно указать служебное значение, например ollama.',
+    lite: true,
+  },
+  {
+    key: 'openrouterEmbeddingKey',
+    label: 'OpenRouter / compatible API Key (embeddings)',
+    placeholder: 'sk-or-...',
+    hint: 'Отдельный ключ для векторизации. Для локального compatible endpoint должен поддерживаться /v1/embeddings.',
+    lite: true,
+  },
+  {
+    key: 'openaiKey',
+    label: 'OpenAI API Key',
+    placeholder: 'sk-...',
+    hint: 'Используется для прямых запросов к OpenAI (эмбеддинги и/или Whisper STT)',
+  },
+  {
+    key: 'openaiEmbeddingKey',
+    label: 'OpenAI API Key (только embeddings)',
+    placeholder: 'sk-...',
+    hint: 'Отдельный ключ для эмбеддингов через OpenAI напрямую',
+    lite: true,
+  },
+  { key: 'deepgramKey', label: 'Deepgram API Key', placeholder: 'dg_...' },
+];
+
+export function visibleSecretFieldsForPlan(canUseVoiceStt: boolean): SecretField[] {
+  return canUseVoiceStt ? SECRET_FIELDS : SECRET_FIELDS.filter((field) => field.lite);
+}
+
 function SecretsBlock({ agentId }: { agentId: string }) {
   const canUseVoiceStt = useFeature('voice.stt');
   const qc = useQueryClient();
@@ -436,45 +486,7 @@ function SecretsBlock({ agentId }: { agentId: string }) {
     onError: (err) => addToast(err.message, 'error'),
   });
 
-  const secretFields: {
-    key: keyof typeof fields;
-    label: string;
-    placeholder: string;
-    hint?: string;
-    lite?: boolean;
-  }[] = [
-    {
-      key: 'openrouterKey',
-      label: 'OpenRouter / compatible API Key (чат)',
-      placeholder: 'sk-or-...',
-      hint: 'Используется для генерации ответов через OpenRouter или compatible endpoint. Для Ollama можно указать служебное значение, например ollama.',
-      lite: true,
-    },
-    {
-      key: 'openrouterEmbeddingKey',
-      label: 'OpenRouter / compatible API Key (embeddings)',
-      placeholder: 'sk-or-...',
-      hint: 'Отдельный ключ для векторизации. Для локального compatible endpoint должен поддерживаться /v1/embeddings.',
-      lite: true,
-    },
-    {
-      key: 'openaiKey',
-      label: 'OpenAI API Key',
-      placeholder: 'sk-...',
-      hint: 'Используется для прямых запросов к OpenAI (эмбеддинги и/или Whisper STT)',
-    },
-    {
-      key: 'openaiEmbeddingKey',
-      label: 'OpenAI API Key (только embeddings)',
-      placeholder: 'sk-...',
-      hint: 'Отдельный ключ для эмбеддингов через OpenAI напрямую',
-    },
-    { key: 'deepgramKey', label: 'Deepgram API Key', placeholder: 'dg_...' },
-  ];
-
-  const visibleSecretFields = canUseVoiceStt
-    ? secretFields
-    : secretFields.filter((field) => field.lite);
+  const visibleSecretFields = visibleSecretFieldsForPlan(canUseVoiceStt);
   const visibleSecretKeys = new Set(visibleSecretFields.map((field) => field.key));
   const hasAnyKey = Object.entries(fields).some(
     ([key, value]) => visibleSecretKeys.has(key as keyof typeof fields) && value.trim() !== '',

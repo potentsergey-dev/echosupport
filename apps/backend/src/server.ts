@@ -129,12 +129,12 @@ export async function buildServer(
   // WebSocket support (must be registered before routes that use it)
   await app.register(websocket);
 
-  // Auth plugin — adds fastify.authenticate decorator (must be before route plugins)
-  await app.register(authPlugin);
   await app.register(
     dependenciesPlugin,
     options.dependencies ? { dependencies: options.dependencies } : {},
   );
+  // Auth plugin — adds fastify.authenticate decorator and delegates workspace checks to deps.
+  await app.register(authPlugin);
   await app.register(entitlementsPlugin);
 
   app.setErrorHandler((error: FastifyError, req, reply) => {
@@ -193,7 +193,7 @@ export async function buildServer(
 
   const backgroundRunners: NodeJS.Timeout[] = [];
   if (options.startBackgroundWorkers === true) {
-    backgroundRunners.push(startJobRunner());
+    backgroundRunners.push(startJobRunner(app.deps.storage));
     backgroundRunners.push(startCleanupRunner());
     void startOperatorNotifier();
   }

@@ -29,7 +29,13 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
     'authenticate',
     async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
       try {
-        await request.jwtVerify();
+        const context = await fastify.deps.authWorkspace.authenticateRequest(request);
+        request.user = {
+          sub: context.userId,
+          email: context.email,
+          tenantId: context.tenantId,
+          role: context.role,
+        };
       } catch {
         return reply.status(401).send({ error: 'Unauthorized' });
       }
@@ -47,7 +53,13 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
         }
       }
       try {
-        await request.jwtVerify();
+        const context = await fastify.deps.authWorkspace.authenticateRequest(request);
+        request.user = {
+          sub: context.userId,
+          email: context.email,
+          tenantId: context.tenantId,
+          role: context.role,
+        };
       } catch {
         return reply.status(401).send({ error: 'Unauthorized' });
       }
@@ -57,7 +69,13 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.decorate('requireRole', (roles: string[]) => {
     return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
       try {
-        await request.jwtVerify();
+        const context = await fastify.deps.authWorkspace.authenticateRequest(request);
+        request.user = {
+          sub: context.userId,
+          email: context.email,
+          tenantId: context.tenantId,
+          role: context.role,
+        };
       } catch {
         return reply.status(401).send({ error: 'Unauthorized' });
       }

@@ -8,7 +8,8 @@ import type {
   StorageAdapter,
 } from '../contracts/infrastructure.js';
 import { ApiError } from './api-errors.js';
-import { getEntitlementProvider } from './entitlements.js';
+import type { EntitlementService } from '../contracts/entitlements.js';
+import { getEntitlementService } from './entitlements.js';
 import { prismaJobDispatcher } from './job-runner.js';
 import { noopMeteringSink } from './metering.js';
 import { inMemoryRealtimeEventBus, type HubEvent } from './realtime-hub.js';
@@ -18,7 +19,7 @@ export interface AppDependencies {
   jobs: JobDispatcher;
   realtime: RealtimeEventBus<HubEvent>;
   authWorkspace: AuthWorkspaceAdapter;
-  entitlements: ReturnType<typeof getEntitlementProvider>;
+  entitlements: EntitlementService;
   metering: MeteringSink;
 }
 
@@ -49,7 +50,7 @@ export function createCommunityDependencies(): AppDependencies {
     jobs: prismaJobDispatcher,
     realtime: inMemoryRealtimeEventBus,
     authWorkspace: new CommunityAuthWorkspaceAdapter(),
-    entitlements: getEntitlementProvider(),
+    entitlements: getEntitlementService(),
     metering: noopMeteringSink,
   };
 }

@@ -63,3 +63,13 @@ export interface EntitlementContext {
 export interface EntitlementProvider {
   getSnapshot(context: EntitlementContext): Promise<EntitlementSnapshot>;
 }
+
+export interface EntitlementService extends EntitlementProvider {
+  assertFeature(context: EntitlementContext, feature: FeatureKey): Promise<EntitlementSnapshot>;
+  assertQuota(
+    context: EntitlementContext,
+    quota: QuotaKey,
+    quantity: number,
+    readCurrentUsage: () => Promise<number>,
+  ): Promise<EntitlementSnapshot>;
+}

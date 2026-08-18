@@ -1,6 +1,7 @@
 import type {
   EntitlementContext,
   EntitlementProvider,
+  EntitlementService,
   EntitlementSnapshot,
   FeatureKey,
   PlanName,
@@ -179,6 +180,7 @@ export function createEntitlementProvider(): EntitlementProvider {
 }
 
 let provider: EntitlementProvider | null = null;
+let service: EntitlementService | null = null;
 
 export function getEntitlementProvider(): EntitlementProvider {
   provider ??= createEntitlementProvider();
@@ -187,10 +189,11 @@ export function getEntitlementProvider(): EntitlementProvider {
 
 export function setEntitlementProviderForTests(next: EntitlementProvider | null): void {
   provider = next;
+  service = next ? createEntitlementService(next) : null;
 }
 
 export async function getEntitlements(context: EntitlementContext): Promise<EntitlementSnapshot> {
-  return getEntitlementProvider().getSnapshot(context);
+  return getEntitlementService().getSnapshot(context);
 }
 
 function assertSubscriptionAccess(snapshot: EntitlementSnapshot, tenantId: string): void {
@@ -212,16 +215,7 @@ export async function assertFeature(
   context: EntitlementContext,
   feature: FeatureKey,
 ): Promise<EntitlementSnapshot> {
-  const snapshot = await getEntitlements(context);
-  assertSubscriptionAccess(snapshot, context.tenantId);
-  if (!snapshot.features[feature]?.enabled) {
-    throw new ApiError('FEATURE_NOT_AVAILABLE', {
-      tenantId: context.tenantId,
-      plan: snapshot.plan,
-      feature,
-    });
-  }
-  return snapshot;
+  return getEntitlementService().assertFeature(context, feature);
 }
 
 export async function assertQuota(
@@ -230,24 +224,50 @@ export async function assertQuota(
   quantity: number,
   readCurrentUsage: () => Promise<number>,
 ): Promise<EntitlementSnapshot> {
-  if (!Number.isSafeInteger(quantity) || quantity <= 0) {
-    throw new Error('Quota quantity must be a positive safe integer.');
-  }
+  return getEntitlementService().assertQuota(context, quota, quantity, readCurrentUsage);
+}
 
-  const snapshot = await getEntitlements(context);
-  assertSubscriptionAccess(snapshot, context.tenantId);
-  const quotaSnapshot = snapshot.quotas[quota];
-  if (!quotaSnapshot.enforced || quotaSnapshot.limit === null) return snapshot;
+export function createEntitlementService(provider: EntitlementProvider): EntitlementService {
+  return {
+    getSnapshot: (context) => provider.getSnapshot(context),
+    async assertFeature(context, feature) {
+      const snapshot = await provider.getSnapshot(context);
+      assertSubscriptionAccess(snapshot, context.tenantId);
+      if (!snapshot.features[feature]?.enabled) {
+        throw new ApiError('FEATURE_NOT_AVAILABLE', {
+          tenantId: context.tenantId,
+          plan: snapshot.plan,
+          feature,
+        });
+      }
+      return snapshot;
+    },
+    async assertQuota(context, quota, quantity, readCurrentUsage) {
+      if (!Number.isSafeInteger(quantity) || quantity <= 0) {
+        throw new Error('Quota quantity must be a positive safe integer.');
+      }
 
-  const used = await readCurrentUsage();
-  if (used + quantity > quotaSnapshot.limit) {
-    throw new ApiError('QUOTA_EXCEEDED', {
-      tenantId: context.tenantId,
-      plan: snapshot.plan,
-      quota,
-      limit: quotaSnapshot.limit,
-      used,
-    });
-  }
-  return snapshot;
+      const snapshot = await provider.getSnapshot(context);
+      assertSubscriptionAccess(snapshot, context.tenantId);
+      const quotaSnapshot = snapshot.quotas[quota];
+      if (!quotaSnapshot.enforced || quotaSnapshot.limit === null) return snapshot;
+
+      const used = await readCurrentUsage();
+      if (used + quantity > quotaSnapshot.limit) {
+        throw new ApiError('QUOTA_EXCEEDED', {
+          tenantId: context.tenantId,
+          plan: snapshot.plan,
+          quota,
+          limit: quotaSnapshot.limit,
+          used,
+        });
+      }
+      return snapshot;
+    },
+  };
+}
+
+export function getEntitlementService(): EntitlementService {
+  service ??= createEntitlementService(getEntitlementProvider());
+  return service;
 }

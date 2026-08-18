@@ -17,10 +17,13 @@ vi.mock('../services/conversation-summarizer.js', () => ({
   summarizeSession: vi.fn(),
 }));
 
-import { prismaJobWorkerRunner } from '../services/job-runner.js';
+import { createPrismaJobWorkerRunner } from '../services/job-runner.js';
 
 describe('worker lifecycle', () => {
   it('starts and stops through the WorkerRunner contract', async () => {
+    const prismaJobWorkerRunner = createPrismaJobWorkerRunner({
+      readFile: vi.fn().mockResolvedValue(Buffer.from('document')),
+    });
     const handle = await prismaJobWorkerRunner.start();
     await expect(handle.stop()).resolves.toBeUndefined();
   });

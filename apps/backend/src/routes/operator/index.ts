@@ -17,11 +17,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { prisma } from '../../db/prisma.js';
-import {
-  publishToOperators,
-  publishToVisitor,
-  type MessageSummary,
-} from '../../services/realtime-hub.js';
+import { type MessageSummary } from '../../services/realtime-hub.js';
 import { getAgentSecrets } from '../../services/agent-secrets.js';
 import { chatCompletion } from '../../adapters/llm/openrouter.js';
 import { env } from '../../config/env.js';
@@ -43,6 +39,7 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
   // Shared preHandler: require operator role
   const operatorAuth = fastify.requireRole(OPERATOR_ROLES);
   const operatorFeature = fastify.requireFeature('operator.inbox');
+  const bookingFeature = fastify.requireFeature('booking.workflow');
   fastify.addHook('preHandler', async (req, reply) => {
     await operatorAuth(req, reply);
     if (reply.sent) return;
@@ -184,14 +181,14 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     // Notify visitor
-    publishToVisitor(id, {
+    fastify.deps.realtime.publishToVisitor(id, {
       type: 'operator:joined',
       sessionId: id,
       operatorName: req.user.email,
     });
 
     // Notify other operators
-    publishToOperators(session.agent.tenantId, {
+    fastify.deps.realtime.publishToOperators(session.agent.tenantId, {
       type: 'session:status',
       tenantId: session.agent.tenantId,
       sessionId: id,
@@ -263,7 +260,7 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
     };
 
     if (!isInternal) {
-      publishToVisitor(id, {
+      fastify.deps.realtime.publishToVisitor(id, {
         type: 'operator:message',
         sessionId: id,
         content,
@@ -271,7 +268,7 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    publishToOperators(session.agent.tenantId, {
+    fastify.deps.realtime.publishToOperators(session.agent.tenantId, {
       type: 'session:message',
       tenantId: session.agent.tenantId,
       sessionId: id,
@@ -307,14 +304,14 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
         },
       });
 
-      publishToVisitor(id, {
+      fastify.deps.realtime.publishToVisitor(id, {
         type: 'session:status',
         tenantId: session.agent.tenantId,
         sessionId: id,
         status: 'ACTIVE',
       });
 
-      publishToOperators(session.agent.tenantId, {
+      fastify.deps.realtime.publishToOperators(session.agent.tenantId, {
         type: 'session:status',
         tenantId: session.agent.tenantId,
         sessionId: id,
@@ -359,13 +356,13 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
       },
     });
 
-    publishToOperators(session.agent.tenantId, {
+    fastify.deps.realtime.publishToOperators(session.agent.tenantId, {
       type: 'session:status',
       tenantId: session.agent.tenantId,
       sessionId: id,
       status: 'RESOLVED',
     });
-    publishToVisitor(id, {
+    fastify.deps.realtime.publishToVisitor(id, {
       type: 'session:status',
       tenantId: session.agent.tenantId,
       sessionId: id,
@@ -493,7 +490,7 @@ const operatorRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send({ error: 'Invalid status' });
     }
     // Broadcast status change to operator peers in same tenant
-    publishToOperators(req.user.tenantId, {
+    fastify.deps.realtime.publishToOperators(req.user.tenantId, {
       type: 'session:status',
       tenantId: req.user.tenantId,
       sessionId: '__operator_status__',
@@ -605,55 +602,59 @@ Only output the reply text — no meta-commentary.`;
   );
 
   // ── GET /operator/appointments ─────────────────────────────────────────────
-  fastify.get('/appointments', { preHandler: [operatorAuth] }, async (req, reply) => {
-    const query = req.query as Record<string, string | undefined>;
-    const status = query['status'];
-    const from = query['from'] ? new Date(query['from']) : undefined;
-    const to = query['to'] ? new Date(query['to']) : undefined;
-    const specialistId = query['specialistId'];
+  fastify.get(
+    '/appointments',
+    { preHandler: [operatorAuth, bookingFeature] },
+    async (req, reply) => {
+      const query = req.query as Record<string, string | undefined>;
+      const status = query['status'];
+      const from = query['from'] ? new Date(query['from']) : undefined;
+      const to = query['to'] ? new Date(query['to']) : undefined;
+      const specialistId = query['specialistId'];
 
-    if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime()))) {
-      return reply.status(400).send({ error: 'Invalid date filter' });
-    }
-
-    const where: Record<string, unknown> = { tenantId: req.user.tenantId };
-    if (status) {
-      if (!APPOINTMENT_STATUSES.includes(status as (typeof APPOINTMENT_STATUSES)[number])) {
-        return reply.status(400).send({ error: 'Invalid appointment status' });
+      if ((from && Number.isNaN(from.getTime())) || (to && Number.isNaN(to.getTime()))) {
+        return reply.status(400).send({ error: 'Invalid date filter' });
       }
-      where['status'] = status;
-    }
-    if (specialistId) {
-      const specialist = await prisma.specialist.findFirst({
-        where: { id: specialistId, tenantId: req.user.tenantId },
-        select: { id: true },
-      });
-      if (!specialist) return reply.status(404).send({ error: 'Specialist not found' });
-      where['specialistId'] = specialistId;
-    }
-    if (from || to) {
-      where['startsAt'] = {
-        ...(from && { gte: from }),
-        ...(to && { lte: to }),
-      };
-    }
 
-    const appointments = await prisma.appointment.findMany({
-      where: where as NonNullable<
-        NonNullable<Parameters<typeof prisma.appointment.findMany>[0]>['where']
-      >,
-      include: {
-        specialist: { select: { id: true, name: true, role: true } },
-        service: {
-          select: { id: true, name: true, durationMin: true, isGroup: true, capacity: true },
+      const where: Record<string, unknown> = { tenantId: req.user.tenantId };
+      if (status) {
+        if (!APPOINTMENT_STATUSES.includes(status as (typeof APPOINTMENT_STATUSES)[number])) {
+          return reply.status(400).send({ error: 'Invalid appointment status' });
+        }
+        where['status'] = status;
+      }
+      if (specialistId) {
+        const specialist = await prisma.specialist.findFirst({
+          where: { id: specialistId, tenantId: req.user.tenantId },
+          select: { id: true },
+        });
+        if (!specialist) return reply.status(404).send({ error: 'Specialist not found' });
+        where['specialistId'] = specialistId;
+      }
+      if (from || to) {
+        where['startsAt'] = {
+          ...(from && { gte: from }),
+          ...(to && { lte: to }),
+        };
+      }
+
+      const appointments = await prisma.appointment.findMany({
+        where: where as NonNullable<
+          NonNullable<Parameters<typeof prisma.appointment.findMany>[0]>['where']
+        >,
+        include: {
+          specialist: { select: { id: true, name: true, role: true } },
+          service: {
+            select: { id: true, name: true, durationMin: true, isGroup: true, capacity: true },
+          },
         },
-      },
-      orderBy: { startsAt: 'asc' },
-      take: 200,
-    });
+        orderBy: { startsAt: 'asc' },
+        take: 200,
+      });
 
-    return reply.send(appointments);
-  });
+      return reply.send(appointments);
+    },
+  );
 
   // ── POST /operator/appointments ────────────────────────────────────────────
   const CreateAppointmentSchema = z.object({
@@ -667,159 +668,171 @@ Only output the reply text — no meta-commentary.`;
     sessionId: z.string().optional(),
   });
 
-  fastify.post('/appointments', { preHandler: [operatorAuth] }, async (req, reply) => {
-    const result = CreateAppointmentSchema.safeParse(req.body);
-    if (!result.success)
-      return reply.status(400).send({ error: result.error.flatten().fieldErrors });
+  fastify.post(
+    '/appointments',
+    { preHandler: [operatorAuth, bookingFeature] },
+    async (req, reply) => {
+      const result = CreateAppointmentSchema.safeParse(req.body);
+      if (!result.success)
+        return reply.status(400).send({ error: result.error.flatten().fieldErrors });
 
-    const {
-      specialistId,
-      serviceId,
-      visitorName,
-      visitorPhone,
-      visitorEmail,
-      startsAt: startsAtStr,
-      notes,
-      sessionId,
-    } = result.data;
+      const {
+        specialistId,
+        serviceId,
+        visitorName,
+        visitorPhone,
+        visitorEmail,
+        startsAt: startsAtStr,
+        notes,
+        sessionId,
+      } = result.data;
 
-    // Verify specialist belongs to tenant
-    const specialist = await prisma.specialist.findFirst({
-      where: { id: specialistId, tenantId: req.user.tenantId, isActive: true },
-    });
-    if (!specialist) return reply.status(400).send({ error: 'Specialist not found' });
-
-    const bookableService = await getBookableServiceForSpecialist({
-      tenantId: req.user.tenantId,
-      specialistId,
-      serviceId,
-    });
-    if (!bookableService) {
-      return reply.status(400).send({ error: 'Service not found for this specialist' });
-    }
-
-    const startsAt = new Date(startsAtStr);
-    if (startsAt.getTime() < Date.now()) {
-      return reply.status(400).send({ error: 'Appointment time must be in the future' });
-    }
-    const endsAt = new Date(startsAt.getTime() + bookableService.durationMin * 60 * 1000);
-
-    if (sessionId) {
-      const session = await prisma.session.findFirst({
-        where: { id: sessionId, agent: { tenantId: req.user.tenantId } },
-        select: { id: true },
+      // Verify specialist belongs to tenant
+      const specialist = await prisma.specialist.findFirst({
+        where: { id: specialistId, tenantId: req.user.tenantId, isActive: true },
       });
-      if (!session) return reply.status(400).send({ error: 'Session not found' });
-    }
+      if (!specialist) return reply.status(400).send({ error: 'Specialist not found' });
 
-    // Validate slot is within specialist's working hours
-    const withinHours = await isSlotWithinWorkingHours(specialistId, startsAt, endsAt);
-    if (!withinHours) {
-      return reply
-        .status(400)
-        .send({ error: "The requested time is outside the specialist's working hours." });
-    }
+      const bookableService = await getBookableServiceForSpecialist({
+        tenantId: req.user.tenantId,
+        specialistId,
+        serviceId,
+      });
+      if (!bookableService) {
+        return reply.status(400).send({ error: 'Service not found for this specialist' });
+      }
 
-    // Slot conflict check + create in transaction
-    const appointment = await prisma
-      .$transaction(async (tx) => {
-        await assertSlotCanAcceptAppointment({
-          specialistId,
-          serviceId: bookableService.id,
-          startsAt,
-          endsAt,
-          isGroup: bookableService.isGroup,
-          capacity: bookableService.capacity,
-          db: tx,
+      const startsAt = new Date(startsAtStr);
+      if (startsAt.getTime() < Date.now()) {
+        return reply.status(400).send({ error: 'Appointment time must be in the future' });
+      }
+      const endsAt = new Date(startsAt.getTime() + bookableService.durationMin * 60 * 1000);
+
+      if (sessionId) {
+        const session = await prisma.session.findFirst({
+          where: { id: sessionId, agent: { tenantId: req.user.tenantId } },
+          select: { id: true },
         });
+        if (!session) return reply.status(400).send({ error: 'Session not found' });
+      }
 
-        return tx.appointment.create({
-          data: {
-            tenantId: req.user.tenantId,
+      // Validate slot is within specialist's working hours
+      const withinHours = await isSlotWithinWorkingHours(specialistId, startsAt, endsAt);
+      if (!withinHours) {
+        return reply
+          .status(400)
+          .send({ error: "The requested time is outside the specialist's working hours." });
+      }
+
+      // Slot conflict check + create in transaction
+      const appointment = await prisma
+        .$transaction(async (tx) => {
+          await assertSlotCanAcceptAppointment({
             specialistId,
             serviceId: bookableService.id,
-            visitorName,
-            visitorPhone,
-            visitorEmail: visitorEmail ?? null,
             startsAt,
             endsAt,
-            status: 'PENDING',
-            source: 'OPERATOR',
-            notes: notes ?? null,
-            createdByUserId: req.user.sub,
-            sessionId: sessionId ?? null,
-          },
-          include: {
-            specialist: { select: { id: true, name: true, role: true } },
-            service: { select: { id: true, name: true, isGroup: true, capacity: true } },
-          },
+            isGroup: bookableService.isGroup,
+            capacity: bookableService.capacity,
+            db: tx,
+          });
+
+          return tx.appointment.create({
+            data: {
+              tenantId: req.user.tenantId,
+              specialistId,
+              serviceId: bookableService.id,
+              visitorName,
+              visitorPhone,
+              visitorEmail: visitorEmail ?? null,
+              startsAt,
+              endsAt,
+              status: 'PENDING',
+              source: 'OPERATOR',
+              notes: notes ?? null,
+              createdByUserId: req.user.sub,
+              sessionId: sessionId ?? null,
+            },
+            include: {
+              specialist: { select: { id: true, name: true, role: true } },
+              service: { select: { id: true, name: true, isGroup: true, capacity: true } },
+            },
+          });
+        })
+        .catch((err: Error) => {
+          if (err.message === 'SLOT_TAKEN' || err.message === 'SLOT_FULL') return err.message;
+          throw err;
         });
-      })
-      .catch((err: Error) => {
-        if (err.message === 'SLOT_TAKEN' || err.message === 'SLOT_FULL') return err.message;
-        throw err;
-      });
 
-    if (appointment === 'SLOT_TAKEN' || appointment === 'SLOT_FULL') {
-      return reply.status(409).send({
-        error:
-          appointment === 'SLOT_FULL'
-            ? 'This group session is already full. Please choose another time.'
-            : 'Time slot is already booked. Please choose another.',
-      });
-    }
+      if (appointment === 'SLOT_TAKEN' || appointment === 'SLOT_FULL') {
+        return reply.status(409).send({
+          error:
+            appointment === 'SLOT_FULL'
+              ? 'This group session is already full. Please choose another time.'
+              : 'Time slot is already booked. Please choose another.',
+        });
+      }
 
-    return reply.status(201).send(appointment);
-  });
+      return reply.status(201).send(appointment);
+    },
+  );
 
   // ── PATCH /operator/appointments/:id/confirm ───────────────────────────────
-  fastify.patch('/appointments/:id/confirm', { preHandler: [operatorAuth] }, async (req, reply) => {
-    const { id } = req.params as { id: string };
+  fastify.patch(
+    '/appointments/:id/confirm',
+    { preHandler: [operatorAuth, bookingFeature] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
 
-    const appt = await prisma.appointment.findFirst({
-      where: { id, tenantId: req.user.tenantId },
-      select: { id: true, status: true },
-    });
-    if (!appt) return reply.status(404).send({ error: 'Appointment not found' });
+      const appt = await prisma.appointment.findFirst({
+        where: { id, tenantId: req.user.tenantId },
+        select: { id: true, status: true },
+      });
+      if (!appt) return reply.status(404).send({ error: 'Appointment not found' });
 
-    const updated = await prisma.appointment.update({
-      where: { id },
-      data: { status: 'CONFIRMED' },
-      include: {
-        specialist: { select: { id: true, name: true } },
-        service: { select: { id: true, name: true, isGroup: true, capacity: true } },
-      },
-    });
+      const updated = await prisma.appointment.update({
+        where: { id },
+        data: { status: 'CONFIRMED' },
+        include: {
+          specialist: { select: { id: true, name: true } },
+          service: { select: { id: true, name: true, isGroup: true, capacity: true } },
+        },
+      });
 
-    return reply.send(updated);
-  });
+      return reply.send(updated);
+    },
+  );
 
   // ── PATCH /operator/appointments/:id/cancel ────────────────────────────────
-  fastify.patch('/appointments/:id/cancel', { preHandler: [operatorAuth] }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const body = z.object({ reason: z.string().max(500).optional() }).safeParse(req.body);
+  fastify.patch(
+    '/appointments/:id/cancel',
+    { preHandler: [operatorAuth, bookingFeature] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const body = z.object({ reason: z.string().max(500).optional() }).safeParse(req.body);
 
-    const appt = await prisma.appointment.findFirst({
-      where: { id, tenantId: req.user.tenantId },
-      select: { id: true },
-    });
-    if (!appt) return reply.status(404).send({ error: 'Appointment not found' });
+      const appt = await prisma.appointment.findFirst({
+        where: { id, tenantId: req.user.tenantId },
+        select: { id: true },
+      });
+      if (!appt) return reply.status(404).send({ error: 'Appointment not found' });
 
-    const updated = await prisma.appointment.update({
-      where: { id },
-      data: {
-        status: 'CANCELLED',
-        ...(body.success && body.data.reason ? { notes: body.data.reason } : {}),
-      },
-    });
+      const updated = await prisma.appointment.update({
+        where: { id },
+        data: {
+          status: 'CANCELLED',
+          ...(body.success && body.data.reason ? { notes: body.data.reason } : {}),
+        },
+      });
 
-    return reply.send(updated);
-  });
+      return reply.send(updated);
+    },
+  );
 
   // ── PATCH /operator/appointments/:id/reschedule ────────────────────────────
   fastify.patch(
     '/appointments/:id/reschedule',
-    { preHandler: [operatorAuth] },
+    { preHandler: [operatorAuth, bookingFeature] },
     async (req, reply) => {
       const { id } = req.params as { id: string };
       const result = z.object({ startsAt: z.string().datetime() }).safeParse(req.body);
@@ -884,67 +897,71 @@ Only output the reply text — no meta-commentary.`;
   );
 
   // ── PATCH /operator/appointments/:id ──────────────────────────────────────
-  fastify.patch('/appointments/:id', { preHandler: [operatorAuth] }, async (req, reply) => {
-    const { id } = req.params as { id: string };
-    const schema = z.object({
-      notes: z.string().max(5000).optional().nullable(),
-      visitorName: z.string().max(200).optional(),
-      visitorPhone: z.string().max(50).optional(),
-      visitorEmail: z.string().email().optional().nullable(),
-      status: z.enum(['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED', 'NO_SHOW']).optional(),
-    });
-    const result = schema.safeParse(req.body);
-    if (!result.success)
-      return reply.status(400).send({ error: result.error.flatten().fieldErrors });
+  fastify.patch(
+    '/appointments/:id',
+    { preHandler: [operatorAuth, bookingFeature] },
+    async (req, reply) => {
+      const { id } = req.params as { id: string };
+      const schema = z.object({
+        notes: z.string().max(5000).optional().nullable(),
+        visitorName: z.string().max(200).optional(),
+        visitorPhone: z.string().max(50).optional(),
+        visitorEmail: z.string().email().optional().nullable(),
+        status: z.enum(['PENDING', 'CONFIRMED', 'CANCELLED', 'COMPLETED', 'NO_SHOW']).optional(),
+      });
+      const result = schema.safeParse(req.body);
+      if (!result.success)
+        return reply.status(400).send({ error: result.error.flatten().fieldErrors });
 
-    const appt = await prisma.appointment.findFirst({
-      where: { id, tenantId: req.user.tenantId },
-      include: {
-        service: { select: { id: true, isGroup: true, capacity: true } },
-      },
-    });
-    if (!appt) return reply.status(404).send({ error: 'Appointment not found' });
+      const appt = await prisma.appointment.findFirst({
+        where: { id, tenantId: req.user.tenantId },
+        include: {
+          service: { select: { id: true, isGroup: true, capacity: true } },
+        },
+      });
+      if (!appt) return reply.status(404).send({ error: 'Appointment not found' });
 
-    const { notes, visitorName, visitorPhone, visitorEmail, status } = result.data;
-    if (notes !== undefined && appt.service?.isGroup) {
-      try {
-        await assertSlotCanAcceptAppointment({
-          specialistId: appt.specialistId,
-          serviceId: appt.service.id,
-          startsAt: appt.startsAt,
-          endsAt: appt.endsAt,
-          isGroup: true,
-          capacity: appt.service.capacity,
-          requestedParticipants: getAppointmentParticipantCount(notes),
-          excludeAppointmentId: id,
-        });
-      } catch (err) {
-        if (err instanceof Error && err.message === 'SLOT_FULL') {
-          return reply.status(409).send({
-            error:
-              'There are not enough free seats in this group session. Reduce participants or choose another time.',
+      const { notes, visitorName, visitorPhone, visitorEmail, status } = result.data;
+      if (notes !== undefined && appt.service?.isGroup) {
+        try {
+          await assertSlotCanAcceptAppointment({
+            specialistId: appt.specialistId,
+            serviceId: appt.service.id,
+            startsAt: appt.startsAt,
+            endsAt: appt.endsAt,
+            isGroup: true,
+            capacity: appt.service.capacity,
+            requestedParticipants: getAppointmentParticipantCount(notes),
+            excludeAppointmentId: id,
           });
+        } catch (err) {
+          if (err instanceof Error && err.message === 'SLOT_FULL') {
+            return reply.status(409).send({
+              error:
+                'There are not enough free seats in this group session. Reduce participants or choose another time.',
+            });
+          }
+          throw err;
         }
-        throw err;
       }
-    }
-    const apptUpdateData: Record<string, unknown> = {};
-    if (notes !== undefined) apptUpdateData['notes'] = notes;
-    if (visitorName !== undefined) apptUpdateData['visitorName'] = visitorName;
-    if (visitorPhone !== undefined) apptUpdateData['visitorPhone'] = visitorPhone;
-    if (visitorEmail !== undefined) apptUpdateData['visitorEmail'] = visitorEmail;
-    if (status !== undefined) apptUpdateData['status'] = status;
+      const apptUpdateData: Record<string, unknown> = {};
+      if (notes !== undefined) apptUpdateData['notes'] = notes;
+      if (visitorName !== undefined) apptUpdateData['visitorName'] = visitorName;
+      if (visitorPhone !== undefined) apptUpdateData['visitorPhone'] = visitorPhone;
+      if (visitorEmail !== undefined) apptUpdateData['visitorEmail'] = visitorEmail;
+      if (status !== undefined) apptUpdateData['status'] = status;
 
-    const updated = await prisma.appointment.update({
-      where: { id },
-      data: apptUpdateData,
-      include: {
-        specialist: { select: { id: true, name: true } },
-        service: { select: { id: true, name: true, isGroup: true, capacity: true } },
-      },
-    });
-    return reply.send(updated);
-  });
+      const updated = await prisma.appointment.update({
+        where: { id },
+        data: apptUpdateData,
+        include: {
+          specialist: { select: { id: true, name: true } },
+          service: { select: { id: true, name: true, isGroup: true, capacity: true } },
+        },
+      });
+      return reply.send(updated);
+    },
+  );
 };
 
 export default operatorRoutes;

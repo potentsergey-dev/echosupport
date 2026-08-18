@@ -1,7 +1,6 @@
 import fp from 'fastify-plugin';
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 import type { EntitlementSnapshot, FeatureKey } from '../contracts/entitlements.js';
-import { assertFeature } from '../services/entitlements.js';
 
 declare module 'fastify' {
   interface FastifyInstance {
@@ -22,7 +21,7 @@ const entitlementsPlugin: FastifyPluginAsync = async (fastify) => {
 
   fastify.decorate('requireFeature', (feature: FeatureKey) => {
     return async (request: FastifyRequest): Promise<void> => {
-      await assertFeature(
+      await fastify.deps.entitlements.assertFeature(
         {
           tenantId: request.user.tenantId,
           userId: request.user.sub,

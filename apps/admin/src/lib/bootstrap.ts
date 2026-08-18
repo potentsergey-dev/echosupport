@@ -5,7 +5,19 @@ import { getToken, isAuthenticated } from './auth';
 import type { BootstrapContext, FeatureKey } from '../types';
 
 export function bootstrapQueryKey() {
-  return ['bootstrap', getToken()] as const;
+  return bootstrapQueryKeyForToken(getToken());
+}
+
+export function bootstrapQueryKeyForToken(token: string | null) {
+  return ['bootstrap', token] as const;
+}
+
+export function isFeatureEnabled(
+  data: Pick<BootstrapContext, 'features'> | undefined,
+  feature: FeatureKey,
+): boolean {
+  if (data) return data.features[feature] === true;
+  return feature === 'agent.configuration';
 }
 
 export function useBootstrap() {
@@ -19,10 +31,7 @@ export function useBootstrap() {
 
 export function useFeature(feature: FeatureKey): boolean {
   const { data } = useBootstrap();
-  if (data) return data.features[feature] === true;
-
-  if (feature === 'agent.configuration') return true;
-  return false;
+  return isFeatureEnabled(data, feature);
 }
 
 export function usePlanName(): string {

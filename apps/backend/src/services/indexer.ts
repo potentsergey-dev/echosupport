@@ -13,6 +13,7 @@ import { chunkText } from './chunker.js';
 import { crawlUrl } from './crawler.js';
 import { sanitizeErrorMessage } from './error-sanitizer.js';
 import { resolveEmbeddingConfig } from './resolve-embedding.js';
+import type { StorageAdapter } from '../contracts/infrastructure.js';
 
 const EMBED_BATCH = 50;
 
@@ -20,7 +21,11 @@ async function setJobProgress(jobId: string, progress: number): Promise<void> {
   await prisma.job.update({ where: { id: jobId }, data: { progress } });
 }
 
-export async function reindexAgent(agentId: string, jobId: string): Promise<void> {
+export async function reindexAgent(
+  agentId: string,
+  jobId: string,
+  storage: Pick<StorageAdapter, 'readFile'>,
+): Promise<void> {
   const agent = await prisma.agent.findUniqueOrThrow({
     where: { id: agentId },
     include: { documents: true, sources: true },
@@ -59,7 +64,7 @@ export async function reindexAgent(agentId: string, jobId: string): Promise<void
     await prisma.document.update({ where: { id: doc.id }, data: { status: 'INDEXING' } });
 
     try {
-      const text = await extractText(doc.storagePath, doc.mimeType);
+      const text = await extractText(storage, doc.storagePath, doc.mimeType);
       const chunks = await chunkText(text);
 
       const allVectors: number[][] = [];

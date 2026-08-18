@@ -8,7 +8,7 @@ import { chatStream } from '../adapters/llm/openrouter.js';
 import { retrieve } from '../services/retriever.js';
 import { transcribe as transcribeDeepgram } from '../adapters/stt/deepgram.js';
 import { transcribe as transcribeWhisper } from '../adapters/stt/whisper.js';
-import { publishToOperators } from '../services/realtime-hub.js';
+import { inMemoryRealtimeEventBus } from '../services/realtime-hub.js';
 import dependenciesPlugin from '../plugins/dependencies.js';
 import entitlementsPlugin from '../plugins/entitlements.js';
 
@@ -47,8 +47,12 @@ vi.mock('../services/conversation-summarizer.js', () => ({
 vi.mock('../services/realtime-hub.js', () => ({
   publishToOperators: vi.fn(),
   inMemoryRealtimeEventBus: {
-    publish: vi.fn(),
-    subscribe: vi.fn(() => () => undefined),
+    registerOperator: vi.fn(),
+    unregisterOperator: vi.fn(),
+    registerVisitor: vi.fn(),
+    unregisterVisitor: vi.fn(),
+    publishToOperators: vi.fn(),
+    publishToVisitor: vi.fn(),
   },
 }));
 
@@ -363,8 +367,10 @@ describe('public chat/STT/provider boundaries (PostgreSQL)', () => {
     });
     expect(sessionAMessages.map((message) => message.role)).toEqual(['USER', 'ASSISTANT']);
     expect(await prisma.message.count({ where: { sessionId: fixture.sessionB } })).toBe(0);
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    const publishToOperators = vi.mocked(inMemoryRealtimeEventBus.publishToOperators);
     expect(publishToOperators).toHaveBeenCalledTimes(1);
-    const realtimeEvent = vi.mocked(publishToOperators).mock.calls[0]?.[1];
+    const realtimeEvent = publishToOperators.mock.calls[0]?.[1];
     expect(realtimeEvent).toMatchObject({
       type: 'session:message',
       sessionId: fixture.sessionA,

@@ -2,11 +2,11 @@ import { prisma } from '../db/prisma.js';
 import { sanitizeErrorMessage } from './error-sanitizer.js';
 import { reindexAgent } from './indexer.js';
 import { summarizeSession } from './conversation-summarizer.js';
-import type { JobDispatcher, WorkerRunner } from '../contracts/infrastructure.js';
+import type { JobDispatcher, StorageAdapter, WorkerRunner } from '../contracts/infrastructure.js';
 
 let busy = false;
 
-async function processNextJob(): Promise<void> {
+async function processNextJob(storage: Pick<StorageAdapter, 'readFile'>): Promise<void> {
   if (busy) return;
 
   let jobId: string | null = null;
@@ -48,7 +48,7 @@ async function processNextJob(): Promise<void> {
   try {
     if (jobType === 'REINDEX_AGENT') {
       const { agentId } = jobPayload as { agentId: string };
-      await reindexAgent(agentId, jobId);
+      await reindexAgent(agentId, jobId, storage);
     } else if (jobType === 'SUMMARIZE_SESSION') {
       const { sessionId } = jobPayload as { sessionId: string };
       await summarizeSession(sessionId);
@@ -70,9 +70,9 @@ async function processNextJob(): Promise<void> {
   }
 }
 
-export function startJobRunner(): NodeJS.Timeout {
+export function startJobRunner(storage: Pick<StorageAdapter, 'readFile'>): NodeJS.Timeout {
   return setInterval(() => {
-    processNextJob().catch((err) =>
+    processNextJob(storage).catch((err) =>
       console.error('[job-runner] Unexpected error:', sanitizeErrorMessage(err)),
     );
   }, 5_000);
@@ -93,13 +93,29 @@ export const prismaJobDispatcher: JobDispatcher = {
   },
 };
 
-export const prismaJobWorkerRunner: WorkerRunner = {
-  async start() {
-    const timer = startJobRunner();
-    return {
-      async stop() {
-        clearInterval(timer);
-      },
-    };
-  },
-};
+export function createPrismaJobWorkerRunner(
+  storage: Pick<StorageAdapter, 'readFile'>,
+): WorkerRunner {
+  return {
+    async start() {
+      const timer = startJobRunner(storage);
+      return {
+        async stop() {
+          clearInterval(timer);
+        },
+      };
+    },
+  };
+}
+
+export function createNoopWorkerRunner(): WorkerRunner {
+  return {
+    async start() {
+      return {
+        async stop() {
+          return undefined;
+        },
+      };
+    },
+  };
+}

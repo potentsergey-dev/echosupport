@@ -18,7 +18,7 @@
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "typecheck": "pnpm -r typecheck",
     "test": "pnpm --filter @echosupport/backend test",
-    "test:coverage": "pnpm --filter @echosupport/backend test:coverage",
+    "test:coverage": "pnpm --filter @echosupport/backend test:coverage && pnpm --filter @echosupport/admin test:coverage",
     "smoke:install": "node scripts/smoke-install-readiness.mjs",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

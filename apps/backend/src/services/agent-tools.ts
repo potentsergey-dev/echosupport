@@ -16,7 +16,6 @@
 import type { OpenAI } from 'openai';
 import { prisma } from '../db/prisma.js';
 import { isBusinessHoursNow, getOutOfHoursMessage, getBusinessTimezone } from './business-hours.js';
-import { publishToOperators } from './realtime-hub.js';
 import {
   findAvailableSlots,
   formatAvailableSlotForBusinessTime,
@@ -35,8 +34,13 @@ import {
 import { getActiveServicesForSpecialist } from './specialist-services.js';
 import type { BookingContext } from './booking-context.js';
 import { hasExplicitBookingDateTime } from './booking-context.js';
-import { assertFeature } from './entitlements.js';
-import type { EntitlementSnapshot, FeatureKey } from '../contracts/entitlements.js';
+import type {
+  EntitlementService,
+  EntitlementSnapshot,
+  FeatureKey,
+} from '../contracts/entitlements.js';
+import type { RealtimeEventBus } from '../contracts/infrastructure.js';
+import type { HubEvent } from './realtime-hub.js';
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
   return [...new Set(values.map((value) => value?.trim()).filter(Boolean) as string[])];
@@ -296,6 +300,8 @@ export interface ToolExecutionContext {
   sessionId: string;
   agentId: string;
   tenantId: string;
+  entitlements: EntitlementService;
+  realtime: Pick<RealtimeEventBus<HubEvent>, 'publishToOperators'>;
   bookingContext?: BookingContext | null;
   visitorText?: string;
 }
@@ -378,7 +384,7 @@ export async function executeTool(
 ): Promise<ToolResult> {
   const gatedFeature = gatedFeatureByTool[toolName];
   if (gatedFeature) {
-    await assertFeature({ tenantId: ctx.tenantId }, gatedFeature);
+    await ctx.entitlements.assertFeature({ tenantId: ctx.tenantId }, gatedFeature);
   }
 
   switch (toolName) {
@@ -459,7 +465,7 @@ export async function executeTool(
       });
 
       if (session) {
-        publishToOperators(ctx.tenantId, {
+        ctx.realtime.publishToOperators(ctx.tenantId, {
           type: 'session:new',
           tenantId: ctx.tenantId,
           session: {
@@ -1308,7 +1314,7 @@ export async function executeTool(
         },
       });
 
-      publishToOperators(agent.tenantId, {
+      ctx.realtime.publishToOperators(agent.tenantId, {
         type: 'appointment:new',
         tenantId: agent.tenantId,
         appointment: {

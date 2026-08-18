@@ -38,8 +38,8 @@ async function buildTestServer() {
   const app = Fastify({ logger: false });
   await app.register(jwt, { secret: JWT_SECRET });
   await app.register(multipart);
-  await app.register(authPlugin);
   await app.register(dependenciesPlugin);
+  await app.register(authPlugin);
   await app.register(entitlementsPlugin);
 
   app.addHook('onRequest', async (request, reply) => {
