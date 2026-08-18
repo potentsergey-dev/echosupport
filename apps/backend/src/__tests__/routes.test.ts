@@ -82,8 +82,8 @@ import { prisma } from '../db/prisma.js';
 async function buildTestServer() {
   const app = Fastify({ logger: false });
   await app.register(jwt, { secret: 'test-secret-at-least-32-characters-long!!' });
-  await app.register(authPlugin);
   await app.register(dependenciesPlugin);
+  await app.register(authPlugin);
   await app.register(jobRoutes, { prefix: '/api/v1/admin' });
   await app.register(documentRoutes, { prefix: '/api/v1/admin' });
   await app.register(internalCronRoutes, { prefix: '/api/v1/internal' });

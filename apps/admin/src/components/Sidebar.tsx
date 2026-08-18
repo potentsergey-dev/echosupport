@@ -15,7 +15,7 @@ import {
   UnlockIcon,
 } from 'lucide-react';
 import { listAgents, createAgent, listInboxSessions } from '../lib/api';
-import { clearToken, clearRole, isAdminRole } from '../lib/auth';
+import { clearAdminSession, isAdminRole } from '../lib/auth';
 import { clearWorkingMode, useWorkingMode } from '../lib/working-mode';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
@@ -123,10 +123,8 @@ export function Sidebar({ activeAgentId }: { activeAgentId?: string | undefined 
   const openInboxCount = openSessions.length;
 
   function handleLogout() {
-    clearToken();
-    clearRole();
+    clearAdminSession(qc);
     clearWorkingMode();
-    qc.clear();
     navigate('/login');
   }
 

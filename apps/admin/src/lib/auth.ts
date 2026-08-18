@@ -1,6 +1,10 @@
 const TOKEN_KEY = 'es_admin_token';
 const ROLE_KEY = 'es_admin_role';
 
+interface ClearableQueryCache {
+  clear(): void;
+}
+
 export function getToken(): string | null {
   return localStorage.getItem(TOKEN_KEY);
 }
@@ -27,6 +31,12 @@ export function setRole(role: string): void {
 
 export function clearRole(): void {
   localStorage.removeItem(ROLE_KEY);
+}
+
+export function clearAdminSession(queryCache?: ClearableQueryCache): void {
+  clearToken();
+  clearRole();
+  queryCache?.clear();
 }
 
 export function isAdminRole(): boolean {

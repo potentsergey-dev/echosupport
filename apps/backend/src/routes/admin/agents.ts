@@ -10,7 +10,6 @@ import { env } from '../../config/env.js';
 import { encrypt, decrypt } from '../../services/crypto.js';
 import { clearAgentSecretsCache } from '../../services/agent-secrets.js';
 import { checkQdrantConnection } from '../../adapters/vectorstore/qdrant.js';
-import { assertFeature, assertQuota } from '../../services/entitlements.js';
 
 // ── Zod schemas ─────────────────────────────────────────────────────────────
 
@@ -131,6 +130,16 @@ const AGENT_SAFE_SELECT = {
 
 const ADMIN_ROLES = ['OWNER', 'ADMIN'] as const;
 
+async function lockTenantQuota(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  quota: string,
+): Promise<void> {
+  await tx.$executeRaw`
+    SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${quota}))
+  `;
+}
+
 const agentRoutes: FastifyPluginAsync = async (fastify) => {
   // All routes below require OWNER or ADMIN role
   fastify.addHook('preHandler', fastify.requireRole([...ADMIN_ROLES]));
@@ -153,7 +162,7 @@ const agentRoutes: FastifyPluginAsync = async (fastify) => {
     }
     const d = result.data;
     if (d.bookingEnabled) {
-      await assertFeature(
+      await fastify.deps.entitlements.assertFeature(
         { tenantId: req.user.tenantId, userId: req.user.sub },
         'booking.workflow',
       );
@@ -161,8 +170,12 @@ const agentRoutes: FastifyPluginAsync = async (fastify) => {
 
     const agent = await prisma.$transaction(
       async (tx) => {
-        await assertQuota({ tenantId: req.user.tenantId, userId: req.user.sub }, 'agents', 1, () =>
-          tx.agent.count({ where: { tenantId: req.user.tenantId } }),
+        await lockTenantQuota(tx, req.user.tenantId, 'agents');
+        await fastify.deps.entitlements.assertQuota(
+          { tenantId: req.user.tenantId, userId: req.user.sub },
+          'agents',
+          1,
+          () => tx.agent.count({ where: { tenantId: req.user.tenantId } }),
         );
 
         return tx.agent.create({
@@ -227,13 +240,16 @@ const agentRoutes: FastifyPluginAsync = async (fastify) => {
 
     const d = result.data;
     if (d.bookingEnabled === true) {
-      await assertFeature(
+      await fastify.deps.entitlements.assertFeature(
         { tenantId: req.user.tenantId, userId: req.user.sub },
         'booking.workflow',
       );
     }
     if (d.sttProvider !== undefined) {
-      await assertFeature({ tenantId: req.user.tenantId, userId: req.user.sub }, 'voice.stt');
+      await fastify.deps.entitlements.assertFeature(
+        { tenantId: req.user.tenantId, userId: req.user.sub },
+        'voice.stt',
+      );
     }
     const agent = await prisma.agent.update({
       where: { id: req.params.id },
@@ -355,7 +371,10 @@ const agentRoutes: FastifyPluginAsync = async (fastify) => {
 
     const d = result.data;
     if (d.deepgramKey || d.openaiKey) {
-      await assertFeature({ tenantId: req.user.tenantId, userId: req.user.sub }, 'voice.stt');
+      await fastify.deps.entitlements.assertFeature(
+        { tenantId: req.user.tenantId, userId: req.user.sub },
+        'voice.stt',
+      );
     }
     const current = (existing.encryptedSecrets ?? {}) as Record<string, string>;
     const updated: Record<string, string> = { ...current };

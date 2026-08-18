@@ -1,4 +1,4 @@
-import { getToken, clearToken } from './auth';
+import { clearAdminSession, getToken } from './auth';
 import { queryClient } from './query-client';
 import type {
   Agent,
@@ -67,7 +67,7 @@ function formatApiError(error: unknown, fallback: string): string {
   return translateApiError(fallback);
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const token = getToken();
   const headers: Record<string, string> = {
     ...(init?.body !== undefined && !(init?.body instanceof FormData)
@@ -84,9 +84,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
   if (!res.ok) {
     if (res.status === 401) {
-      clearToken();
-      queryClient.clear();
-      window.location.href = '/admin/login';
+      clearAdminSession(queryClient);
+      if (import.meta.env.MODE !== 'test') {
+        window.location.href = '/admin/login';
+      }
       throw new Error('Session expired. Please log in again.');
     }
     const body = (await res.json().catch(() => ({ error: res.statusText }))) as {

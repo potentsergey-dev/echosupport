@@ -115,14 +115,20 @@ const { reindexAgent } = await import('../services/indexer.js');
 const { extractText } = await import('../services/text-extractor.js');
 const { prisma } = await import('../db/prisma.js');
 
+const fakeStorage = {
+  readFile: vi.fn().mockResolvedValue(Buffer.from('Hello world. This is a test document.')),
+};
+
 describe('indexer — Qdrant payload structure', () => {
   beforeEach(() => {
     capturedPoints.length = 0;
+    fakeStorage.readFile.mockClear();
     vi.mocked(extractText).mockResolvedValue('Hello world. This is a test document.');
   });
 
   it('writes full content (not just preview) into Qdrant payload for FILE chunks', async () => {
-    await reindexAgent('agent-1', 'job-1');
+    await reindexAgent('agent-1', 'job-1', fakeStorage);
+    expect(extractText).toHaveBeenCalledWith(fakeStorage, '/tmp/test.pdf', 'application/pdf');
 
     const filePoints = (capturedPoints as Array<{ payload: Record<string, unknown> }>).filter(
       (p) => p.payload?.['source_type'] === 'FILE',
@@ -138,7 +144,7 @@ describe('indexer — Qdrant payload structure', () => {
   });
 
   it('writes full content (not just preview) into Qdrant payload for URL chunks', async () => {
-    await reindexAgent('agent-1', 'job-1');
+    await reindexAgent('agent-1', 'job-1', fakeStorage);
 
     const urlPoints = (capturedPoints as Array<{ payload: Record<string, unknown> }>).filter(
       (p) => p.payload?.['source_type'] === 'URL',
@@ -154,7 +160,7 @@ describe('indexer — Qdrant payload structure', () => {
   });
 
   it('uses uppercase source_type (FILE not file)', async () => {
-    await reindexAgent('agent-1', 'job-1');
+    await reindexAgent('agent-1', 'job-1', fakeStorage);
 
     const lowerCaseFile = (capturedPoints as Array<{ payload: Record<string, unknown> }>).find(
       (p) => p.payload?.['source_type'] === 'file',
@@ -168,7 +174,7 @@ describe('indexer — Qdrant payload structure', () => {
   });
 
   it('content is longer than content_preview (200 chars limit)', async () => {
-    await reindexAgent('agent-1', 'job-1');
+    await reindexAgent('agent-1', 'job-1', fakeStorage);
 
     for (const point of capturedPoints as Array<{ payload: Record<string, unknown> }>) {
       const content = point.payload['content'] as string;
@@ -181,7 +187,7 @@ describe('indexer — Qdrant payload structure', () => {
   it('fails the indexing job when an item fails while preserving item-level status', async () => {
     vi.mocked(extractText).mockRejectedValueOnce(new Error('Unsupported PDF content'));
 
-    await expect(reindexAgent('agent-1', 'job-1')).rejects.toThrow(/failed to index/i);
+    await expect(reindexAgent('agent-1', 'job-1', fakeStorage)).rejects.toThrow(/failed to index/i);
 
     expect(prisma.document.update).toHaveBeenCalledWith({
       where: { id: 'doc-1' },
@@ -202,7 +208,7 @@ describe('indexer — Qdrant payload structure', () => {
       new Error('provider failed with Bearer sk-live-secret-token-123456789'),
     );
 
-    await expect(reindexAgent('agent-1', 'job-1')).rejects.toThrow(/failed to index/i);
+    await expect(reindexAgent('agent-1', 'job-1', fakeStorage)).rejects.toThrow(/failed to index/i);
 
     expect(prisma.document.update).toHaveBeenCalledWith({
       where: { id: 'doc-1' },

@@ -11,6 +11,13 @@ import {
   publishToVisitor,
   type HubEvent,
 } from '../services/realtime-hub.js';
+import dependenciesPlugin from '../plugins/dependencies.js';
+import { createCommunityDependencies, type AppDependencies } from '../services/dependencies.js';
+import {
+  CloudEntitlementProvider,
+  createEntitlementService,
+  DevTenantPlansSubscriptionRepository,
+} from '../services/entitlements.js';
 
 const JWT_SECRET = 'integration-jwt-secret-at-least-32-characters';
 const ADMIN_ORIGIN = 'https://admin.example';
@@ -183,10 +190,13 @@ async function closeSocket(socket: WebSocket): Promise<void> {
   await closed;
 }
 
-async function buildTestServer() {
+async function buildTestServer(dependencies?: AppDependencies) {
   const app = Fastify({ logger: false });
   await app.register(jwt, { secret: JWT_SECRET });
   await app.register(websocket);
+  await app.register(dependenciesPlugin, {
+    dependencies: dependencies ?? createCommunityDependencies(),
+  });
   await app.register(wsRoutes, { prefix: '/api/v1' });
   const address = await app.listen({ host: '127.0.0.1', port: 0 });
   return { app, baseUrl: address.replace(/^http/, 'ws') };
@@ -324,6 +334,24 @@ describe('WebSocket security and tenant isolation (PostgreSQL)', () => {
     expect(await withTimeout(closed, 'WebSocket close')).toEqual({
       code: 1008,
       reason: 'Forbidden',
+    });
+  });
+
+  it('rejects operator sockets when the injected Cloud provider disables operator.inbox', async () => {
+    await server?.app.close();
+    const deps = createCommunityDependencies();
+    deps.entitlements = createEntitlementService(
+      new CloudEntitlementProvider(
+        new DevTenantPlansSubscriptionRepository(`${fixture.tenantA}=Lite`),
+      ),
+    );
+    server = await buildTestServer(deps);
+
+    const { connected, closed } = await connect(operatorPath(operatorToken('OWNER')));
+    expect(connected).toEqual({ type: 'error', code: 'FEATURE_NOT_AVAILABLE' });
+    expect(await withTimeout(closed, 'WebSocket close')).toEqual({
+      code: 1008,
+      reason: 'Feature not available',
     });
   });
 

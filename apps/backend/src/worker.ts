@@ -1,10 +1,13 @@
 import { prisma } from './db/prisma.js';
 import { startCleanupRunner } from './services/cleanup.js';
-import { startJobRunner } from './services/job-runner.js';
+import { createCommunityDependencies } from './services/dependencies.js';
+import { createPrismaJobWorkerRunner } from './services/job-runner.js';
 import { startOperatorNotifier, stopOperatorNotifier } from './services/operator-notifier.js';
 
 async function main() {
-  const runners = [startJobRunner(), startCleanupRunner()];
+  const deps = createCommunityDependencies();
+  const jobRunner = await createPrismaJobWorkerRunner(deps.storage).start();
+  const cleanupRunner = startCleanupRunner();
   await startOperatorNotifier();
 
   let shuttingDown = false;
@@ -12,7 +15,8 @@ async function main() {
     if (shuttingDown) return;
     shuttingDown = true;
     console.info({ signal }, 'Worker shutdown started');
-    for (const runner of runners) clearInterval(runner);
+    await jobRunner.stop();
+    clearInterval(cleanupRunner);
     stopOperatorNotifier();
     await prisma.$disconnect();
     console.info('Worker shutdown completed');

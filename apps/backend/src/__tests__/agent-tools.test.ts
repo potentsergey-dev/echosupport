@@ -49,8 +49,21 @@ import {
 } from '../services/agent-tools.js';
 import {
   CommunityEntitlementProvider,
+  createEntitlementService,
   setEntitlementProviderForTests,
 } from '../services/entitlements.js';
+import type { ToolExecutionContext } from '../services/agent-tools.js';
+
+function toolContext(overrides: Partial<ToolExecutionContext> = {}): ToolExecutionContext {
+  return {
+    sessionId: 'session-1',
+    agentId: 'agent-1',
+    tenantId: 'tenant-1',
+    entitlements: createEntitlementService(new CommunityEntitlementProvider('pro')),
+    realtime: { publishToOperators: vi.fn() },
+    ...overrides,
+  };
+}
 
 describe('agent tools', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -67,11 +80,7 @@ describe('agent tools', () => {
       },
     ] as never);
 
-    const toolResult = await executeTool(
-      'list_specialists',
-      {},
-      { sessionId: 'session-1', agentId: 'agent-1', tenantId: 'tenant-1' },
-    );
+    const toolResult = await executeTool('list_specialists', {}, toolContext());
 
     const payload = JSON.parse(toolResult.result) as {
       specialists: Array<{ matchingHints: string[] }>;
@@ -96,7 +105,10 @@ describe('agent tools', () => {
       executeTool(
         'request_handoff',
         { reason: 'direct bypass attempt' },
-        { sessionId: 'session-1', agentId: 'agent-1', tenantId: 'tenant-lite' },
+        toolContext({
+          tenantId: 'tenant-lite',
+          entitlements: createEntitlementService(new CommunityEntitlementProvider('lite')),
+        }),
       ),
     ).rejects.toMatchObject({
       code: 'FEATURE_NOT_AVAILABLE',
@@ -162,7 +174,7 @@ it('finds slots for every compatible specialist when only service and date are g
   const toolResult = await executeTool(
     'find_available_slots',
     { service_name: 'Dimensional color', date_from: '2026-08-04', date_to: '2026-08-04' },
-    { sessionId: 'session-1', agentId: 'agent-1', tenantId: 'tenant-1' },
+    toolContext(),
   );
   const payload = JSON.parse(toolResult.result) as {
     specialists: Array<{ specialist: { name: string }; slots: Array<{ startsAt: string }> }>;
@@ -192,16 +204,13 @@ describe('booking date guard', () => {
         date_from: '2026-08-06',
         date_to: '2026-08-06',
       },
-      {
-        sessionId: 'session-1',
-        agentId: 'agent-1',
-        tenantId: 'tenant-1',
+      toolContext({
         bookingContext: {
           serviceId: 'face-practice',
           serviceName: 'Face practice',
           needsDate: true,
         },
-      },
+      }),
     );
 
     expect(JSON.parse(toolResult.result)).toMatchObject({
@@ -221,17 +230,14 @@ describe('booking date guard', () => {
         name: 'Сергей',
         phone: '+375290000004',
       },
-      {
-        sessionId: 'session-1',
-        agentId: 'agent-1',
-        tenantId: 'tenant-1',
+      toolContext({
         bookingContext: {
           serviceId: 'face-practice',
           serviceName: 'Face practice',
           needsDate: false,
         },
         visitorText: '1 человек',
-      },
+      }),
     );
 
     expect(JSON.parse(toolResult.result)).toMatchObject({
@@ -250,10 +256,7 @@ describe('booking date guard', () => {
         name: 'Сергей',
         phone: '+375290000004',
       },
-      {
-        sessionId: 'session-1',
-        agentId: 'agent-1',
-        tenantId: 'tenant-1',
+      toolContext({
         bookingContext: {
           serviceId: 'face-practice',
           serviceName: 'Face practice',
@@ -261,7 +264,7 @@ describe('booking date guard', () => {
           selectedSlot: true,
         },
         visitorText: 'Сергей +375290000004',
-      },
+      }),
     );
 
     expect(JSON.parse(toolResult.result)).not.toMatchObject({
@@ -279,10 +282,7 @@ describe('booking date guard', () => {
         name: 'Сергей',
         phone: '+375290000004',
       },
-      {
-        sessionId: 'session-1',
-        agentId: 'agent-1',
-        tenantId: 'tenant-1',
+      toolContext({
         bookingContext: {
           serviceId: 'face-practice',
           serviceName: 'Face practice',
@@ -291,7 +291,7 @@ describe('booking date guard', () => {
           selectedSlotTime: '09:00',
         },
         visitorText: 'Сергей +375290000004',
-      },
+      }),
     );
 
     expect(JSON.parse(toolResult.result)).toMatchObject({
@@ -309,16 +309,13 @@ describe('booking date guard', () => {
         name: 'Сергей',
         phone: '+375290000004',
       },
-      {
-        sessionId: 'session-1',
-        agentId: 'agent-1',
-        tenantId: 'tenant-1',
+      toolContext({
         bookingContext: {
           serviceId: 'face-practice',
           serviceName: 'Face practice',
           needsDate: true,
         },
-      },
+      }),
     );
 
     expect(JSON.parse(toolResult.result)).toMatchObject({
@@ -373,7 +370,7 @@ describe('booking selection continuity', () => {
         date_from: '2026-08-11',
         date_to: '2026-08-11',
       },
-      { sessionId: 'session-1', agentId: 'agent-1', tenantId: 'tenant-1' },
+      toolContext(),
     );
 
     const payload = JSON.parse(toolResult.result) as {
@@ -399,16 +396,13 @@ describe('booking selection continuity', () => {
         date_from: '2026-08-11',
         date_to: '2026-08-11',
       },
-      {
-        sessionId: 'session-1',
-        agentId: 'agent-1',
-        tenantId: 'tenant-1',
+      toolContext({
         bookingContext: {
           serviceId: 'signature-cut',
           serviceName: 'Signature cut',
           needsDate: false,
         },
-      },
+      }),
     );
 
     expect(JSON.parse(toolResult.result)).toMatchObject({ error: 'SELECTED_SERVICE_MISMATCH' });
@@ -444,10 +438,7 @@ describe('booking selection continuity', () => {
     const toolResult = await executeTool(
       'find_available_slots',
       { search_next_available: true },
-      {
-        sessionId: 'session-1',
-        agentId: 'agent-1',
-        tenantId: 'tenant-1',
+      toolContext({
         visitorText: 'А какие есть даты?',
         bookingContext: {
           serviceId: 'signature-cut',
@@ -457,7 +448,7 @@ describe('booking selection continuity', () => {
           needsDate: false,
           alternativeDatesRequested: true,
         },
-      },
+      }),
     );
 
     expect(JSON.parse(toolResult.result)).not.toMatchObject({ error: 'NO_SLOTS' });
@@ -499,10 +490,7 @@ describe('booking selection continuity', () => {
     const toolResult = await executeTool(
       'find_available_slots',
       {},
-      {
-        sessionId: 'session-1',
-        agentId: 'agent-1',
-        tenantId: 'tenant-1',
+      toolContext({
         visitorText: 'на этой неделе',
         bookingContext: {
           serviceId: 'signature-cut',
@@ -511,7 +499,7 @@ describe('booking selection continuity', () => {
           specialistName: 'Анна Левина',
           needsDate: false,
         },
-      },
+      }),
     );
 
     const payload = JSON.parse(toolResult.result) as { error?: string };
@@ -552,10 +540,7 @@ describe('booking selection continuity', () => {
     const toolResult = await executeTool(
       'find_available_slots',
       { date_from: '2026-08-10', date_to: '2026-08-10' },
-      {
-        sessionId: 'session-1',
-        agentId: 'agent-1',
-        tenantId: 'tenant-1',
+      toolContext({
         bookingContext: {
           serviceId: 'signature-cut',
           serviceName: 'Signature cut',
@@ -563,7 +548,7 @@ describe('booking selection continuity', () => {
           specialistName: 'Анна Левина',
           needsDate: false,
         },
-      },
+      }),
     );
 
     expect(JSON.parse(toolResult.result)).toMatchObject({

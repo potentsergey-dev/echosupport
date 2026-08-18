@@ -6,15 +6,8 @@
 
 import type { FastifyPluginAsync } from 'fastify';
 import { prisma } from '../../db/prisma.js';
-import {
-  registerOperator,
-  unregisterOperator,
-  registerVisitor,
-  unregisterVisitor,
-} from '../../services/realtime-hub.js';
 import { env } from '../../config/env.js';
 import { isAdminOriginAllowed, isOriginAllowed } from '../../services/origin-policy.js';
-import { assertFeature } from '../../services/entitlements.js';
 
 const OPERATOR_ROLES = ['OWNER', 'ADMIN', 'OPERATOR'];
 
@@ -68,14 +61,17 @@ const wsRoutes: FastifyPluginAsync = async (fastify) => {
     }
 
     try {
-      await assertFeature({ tenantId, userId: req.user.sub }, 'operator.inbox');
+      await fastify.deps.entitlements.assertFeature(
+        { tenantId, userId: req.user.sub },
+        'operator.inbox',
+      );
     } catch {
       socket.send(JSON.stringify({ type: 'error', code: 'FEATURE_NOT_AVAILABLE' }));
       socket.close(1008, 'Feature not available');
       return;
     }
 
-    registerOperator(tenantId, socket);
+    fastify.deps.realtime.registerOperator(tenantId, socket);
 
     socket.send(JSON.stringify({ type: 'connected', tenantId }));
 
@@ -92,7 +88,7 @@ const wsRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     socket.on('close', () => {
-      unregisterOperator(tenantId, socket);
+      fastify.deps.realtime.unregisterOperator(tenantId, socket);
     });
   });
 
@@ -126,7 +122,7 @@ const wsRoutes: FastifyPluginAsync = async (fastify) => {
       return;
     }
 
-    registerVisitor(sessionId, socket);
+    fastify.deps.realtime.registerVisitor(sessionId, socket);
 
     socket.send(JSON.stringify({ type: 'connected', sessionId }));
 
@@ -142,7 +138,7 @@ const wsRoutes: FastifyPluginAsync = async (fastify) => {
     });
 
     socket.on('close', () => {
-      unregisterVisitor(sessionId, socket);
+      fastify.deps.realtime.unregisterVisitor(sessionId, socket);
     });
   });
 };

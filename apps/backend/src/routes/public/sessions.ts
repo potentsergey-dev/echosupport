@@ -28,8 +28,6 @@ import {
 import { csatSubmissionSchema } from '../../services/csat.js';
 import { summarizeError } from '../../services/error-sanitizer.js';
 import { isOriginAllowed } from '../../services/origin-policy.js';
-import { publishToOperators } from '../../services/realtime-hub.js';
-import { assertFeature } from '../../services/entitlements.js';
 import { isApiError } from '../../services/api-errors.js';
 import {
   buildBookingDateQuestion,
@@ -371,7 +369,7 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
             : Prisma.JsonNull,
         },
       });
-      publishToOperators(session.agent.tenantId, {
+      fastify.deps.realtime.publishToOperators(session.agent.tenantId, {
         type: 'session:message',
         tenantId: session.agent.tenantId,
         sessionId,
@@ -620,6 +618,8 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
               tenantId: session.agent.tenantId,
               bookingContext: parseBookingContext(bookingContext),
               visitorText: text,
+              entitlements: fastify.deps.entitlements,
+              realtime: fastify.deps.realtime,
             }).catch((err: unknown): ToolResult => {
               if (!isApiError(err)) throw err;
               return {
@@ -770,7 +770,10 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(410).send({ error: 'Session expired or closed' });
       }
 
-      await assertFeature({ tenantId: session.agent.tenantId }, 'voice.stt');
+      await fastify.deps.entitlements.assertFeature(
+        { tenantId: session.agent.tenantId },
+        'voice.stt',
+      );
 
       const data = await req.file({ limits: { fileSize: STT_MAX_BYTES } });
       if (!data) {

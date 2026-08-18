@@ -24,8 +24,8 @@ async function buildGuardServer(plan: 'lite' | 'pro') {
   setEntitlementProviderForTests(new CommunityEntitlementProvider(plan));
   const app = Fastify({ logger: false });
   await app.register(jwt, { secret: 'test-secret-at-least-32-characters-long!!' });
-  await app.register(authPlugin);
   await app.register(dependenciesPlugin);
+  await app.register(authPlugin);
   await app.register(entitlementsPlugin);
   app.setErrorHandler((error: FastifyError, req, reply) => {
     if (isApiError(error)) {
