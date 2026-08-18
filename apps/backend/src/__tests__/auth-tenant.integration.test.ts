@@ -5,6 +5,8 @@ import { hash } from 'bcryptjs';
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '../db/prisma.js';
 import authPlugin from '../plugins/auth.js';
+import dependenciesPlugin from '../plugins/dependencies.js';
+import entitlementsPlugin from '../plugins/entitlements.js';
 import authRoutes from '../routes/auth/login.js';
 import agentRoutes from '../routes/admin/agents.js';
 import documentRoutes from '../routes/admin/documents.js';
@@ -37,6 +39,8 @@ async function buildTestServer() {
   await app.register(jwt, { secret: JWT_SECRET });
   await app.register(multipart);
   await app.register(authPlugin);
+  await app.register(dependenciesPlugin);
+  await app.register(entitlementsPlugin);
 
   app.addHook('onRequest', async (request, reply) => {
     const protectedBrowserRoute = ['/api/v1/auth/', '/api/v1/admin/', '/api/v1/operator/'].some(
