@@ -109,8 +109,17 @@ jobs:
           node-version: '22'
           package-manager-cache: false
 
-      - name: Build and start the stack
-        run: docker compose up --build --detach --wait --wait-timeout 180
+      - name: Build images
+        run: docker compose build
+
+      - name: Start infrastructure
+        run: docker compose up --detach --wait --wait-timeout 180 postgres qdrant
+
+      - name: Apply migrations and seed data
+        run: docker compose up migrate
+
+      - name: Start application services
+        run: docker compose up --detach --wait --wait-timeout 180 backend worker nginx
 
       - name: Run install readiness smoke
         run: node scripts/smoke-install-readiness.mjs
