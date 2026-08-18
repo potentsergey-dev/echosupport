@@ -46,6 +46,10 @@ vi.mock('../services/conversation-summarizer.js', () => ({
 
 vi.mock('../services/realtime-hub.js', () => ({
   publishToOperators: vi.fn(),
+  inMemoryRealtimeEventBus: {
+    publish: vi.fn(),
+    subscribe: vi.fn(() => () => undefined),
+  },
 }));
 
 interface Fixture {
