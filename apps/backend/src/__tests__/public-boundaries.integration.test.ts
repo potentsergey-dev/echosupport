@@ -9,6 +9,8 @@ import { retrieve } from '../services/retriever.js';
 import { transcribe as transcribeDeepgram } from '../adapters/stt/deepgram.js';
 import { transcribe as transcribeWhisper } from '../adapters/stt/whisper.js';
 import { publishToOperators } from '../services/realtime-hub.js';
+import dependenciesPlugin from '../plugins/dependencies.js';
+import entitlementsPlugin from '../plugins/entitlements.js';
 
 vi.mock('../services/retriever.js', () => ({
   retrieve: vi.fn(),
@@ -63,6 +65,8 @@ let app: FastifyInstance;
 async function buildTestServer(): Promise<FastifyInstance> {
   const server = Fastify({ logger: false });
   await server.register(multipart);
+  await server.register(dependenciesPlugin);
+  await server.register(entitlementsPlugin);
   await server.register(publicSessionRoutes, { prefix: '/api/v1/public' });
   return server;
 }
