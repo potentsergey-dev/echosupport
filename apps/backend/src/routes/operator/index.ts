@@ -42,6 +42,12 @@ const OPEN_SESSION_STATUSES = ['ACTIVE', 'WAITING_OPERATOR', 'WITH_OPERATOR'] as
 const operatorRoutes: FastifyPluginAsync = async (fastify) => {
   // Shared preHandler: require operator role
   const operatorAuth = fastify.requireRole(OPERATOR_ROLES);
+  const operatorFeature = fastify.requireFeature('operator.inbox');
+  fastify.addHook('preHandler', async (req, reply) => {
+    await operatorAuth(req, reply);
+    if (reply.sent) return;
+    await operatorFeature(req, reply);
+  });
 
   // ── GET /operator/inbox ────────────────────────────────────────────────────
   fastify.get('/inbox', { preHandler: [operatorAuth] }, async (req, reply) => {

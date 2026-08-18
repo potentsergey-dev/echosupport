@@ -4,7 +4,6 @@ import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { prisma } from '../../db/prisma.js';
 import { env } from '../../config/env.js';
-import { saveFile, deleteFile } from '../../adapters/storage/local-fs.js';
 import { deleteByDocumentId, deleteBySourceId } from '../../adapters/vectorstore/qdrant.js';
 
 const ALLOWED_MIME = new Set([
@@ -132,7 +131,7 @@ const documentRoutes: FastifyPluginAsync = async (fastify) => {
 
     const ext = path.extname(data.filename) || '';
     const docId = randomUUID();
-    const storagePath = await saveFile(agentId, `${docId}${ext}`, buffer);
+    const storagePath = await fastify.deps.storage.saveFile(agentId, `${docId}${ext}`, buffer);
 
     const doc = await prisma.document.create({
       data: {
@@ -158,7 +157,7 @@ const documentRoutes: FastifyPluginAsync = async (fastify) => {
 
     await deleteByDocumentId(agent.tenantId, docId);
     await prisma.documentChunk.deleteMany({ where: { documentId: docId } });
-    await deleteFile(doc.storagePath);
+    await fastify.deps.storage.deleteFile(doc.storagePath);
     await prisma.document.delete({ where: { id: docId } });
 
     return reply.status(204).send();
@@ -243,14 +242,7 @@ const documentRoutes: FastifyPluginAsync = async (fastify) => {
       });
     }
 
-    const job = await prisma.job.create({
-      data: {
-        type: 'REINDEX_AGENT',
-        agentId,
-        payload: { agentId },
-        status: 'PENDING',
-      },
-    });
+    const job = await fastify.deps.jobs.enqueue('REINDEX_AGENT', { agentId }, { agentId });
 
     return reply.status(202).send({ jobId: job.id });
   });

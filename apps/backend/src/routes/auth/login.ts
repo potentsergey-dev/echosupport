@@ -9,6 +9,30 @@ const LoginBodySchema = z.object({
 });
 
 const authRoutes: FastifyPluginAsync = async (fastify) => {
+  fastify.get('/bootstrap', { preHandler: [fastify.authenticate] }, async (req) => {
+    const entitlements = await fastify.getEntitlements(req);
+    return {
+      user: {
+        id: req.user.sub,
+        email: req.user.email,
+        role: req.user.role,
+      },
+      workspace: {
+        id: req.user.tenantId,
+        tenantId: req.user.tenantId,
+      },
+      plan: entitlements.plan,
+      features: Object.fromEntries(
+        Object.entries(entitlements.features).map(([key, value]) => [key, value.enabled]),
+      ),
+      quotas: entitlements.quotas,
+      subscription: entitlements.subscription,
+      policyVersion: entitlements.policyVersion,
+      computedAt: entitlements.computedAt,
+      expiresAt: entitlements.expiresAt,
+    };
+  });
+
   fastify.post(
     '/login',
     { config: { rateLimit: { max: 10, timeWindow: '1 minute' } } },

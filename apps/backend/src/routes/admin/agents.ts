@@ -4,11 +4,13 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { randomBytes } from 'node:crypto';
+import { Prisma } from '@prisma/client';
 import { prisma } from '../../db/prisma.js';
 import { env } from '../../config/env.js';
 import { encrypt, decrypt } from '../../services/crypto.js';
 import { clearAgentSecretsCache } from '../../services/agent-secrets.js';
 import { checkQdrantConnection } from '../../adapters/vectorstore/qdrant.js';
+import { assertFeature, assertQuota } from '../../services/entitlements.js';
 
 // ── Zod schemas ─────────────────────────────────────────────────────────────
 
@@ -150,34 +152,49 @@ const agentRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send({ error: result.error.flatten().fieldErrors });
     }
     const d = result.data;
+    if (d.bookingEnabled) {
+      await assertFeature(
+        { tenantId: req.user.tenantId, userId: req.user.sub },
+        'booking.workflow',
+      );
+    }
 
-    const agent = await prisma.agent.create({
-      data: {
-        tenantId: req.user.tenantId,
-        name: d.name,
-        ...(d.role !== undefined ? { role: d.role } : {}),
-        ...(d.greetingMessage !== undefined ? { greetingMessage: d.greetingMessage } : {}),
-        ...(d.proactiveMessageDelay !== undefined
-          ? { proactiveMessageDelay: d.proactiveMessageDelay }
-          : {}),
-        ...(d.proactiveMessageText !== undefined
-          ? { proactiveMessageText: d.proactiveMessageText || null }
-          : {}),
-        systemPrompt: d.systemPrompt,
-        llmModel: d.llmModel,
-        language: d.language,
-        sessionTtlMinutes: d.sessionTtlMinutes,
-        sourcePriority: d.sourcePriority,
-        sttProvider: d.sttProvider,
-        allowedOrigins: d.allowedOrigins,
-        maxMessagesPerHourPerVisitor: d.maxMessagesPerHourPerVisitor,
-        maxSessionsPerDayPerVisitor: d.maxSessionsPerDayPerVisitor,
-        maxMessageLength: d.maxMessageLength,
-        bookingEnabled: d.bookingEnabled,
-        publicKey: generatePublicKey(),
+    const agent = await prisma.$transaction(
+      async (tx) => {
+        await assertQuota({ tenantId: req.user.tenantId, userId: req.user.sub }, 'agents', 1, () =>
+          tx.agent.count({ where: { tenantId: req.user.tenantId } }),
+        );
+
+        return tx.agent.create({
+          data: {
+            tenantId: req.user.tenantId,
+            name: d.name,
+            ...(d.role !== undefined ? { role: d.role } : {}),
+            ...(d.greetingMessage !== undefined ? { greetingMessage: d.greetingMessage } : {}),
+            ...(d.proactiveMessageDelay !== undefined
+              ? { proactiveMessageDelay: d.proactiveMessageDelay }
+              : {}),
+            ...(d.proactiveMessageText !== undefined
+              ? { proactiveMessageText: d.proactiveMessageText || null }
+              : {}),
+            systemPrompt: d.systemPrompt,
+            llmModel: d.llmModel,
+            language: d.language,
+            sessionTtlMinutes: d.sessionTtlMinutes,
+            sourcePriority: d.sourcePriority,
+            sttProvider: d.sttProvider,
+            allowedOrigins: d.allowedOrigins,
+            maxMessagesPerHourPerVisitor: d.maxMessagesPerHourPerVisitor,
+            maxSessionsPerDayPerVisitor: d.maxSessionsPerDayPerVisitor,
+            maxMessageLength: d.maxMessageLength,
+            bookingEnabled: d.bookingEnabled,
+            publicKey: generatePublicKey(),
+          },
+          select: AGENT_SAFE_SELECT,
+        });
       },
-      select: AGENT_SAFE_SELECT,
-    });
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
 
     return reply.status(201).send(agent);
   });
@@ -209,6 +226,15 @@ const agentRoutes: FastifyPluginAsync = async (fastify) => {
     if (!existing) return reply.status(404).send({ error: 'Agent not found' });
 
     const d = result.data;
+    if (d.bookingEnabled === true) {
+      await assertFeature(
+        { tenantId: req.user.tenantId, userId: req.user.sub },
+        'booking.workflow',
+      );
+    }
+    if (d.sttProvider !== undefined) {
+      await assertFeature({ tenantId: req.user.tenantId, userId: req.user.sub }, 'voice.stt');
+    }
     const agent = await prisma.agent.update({
       where: { id: req.params.id },
       data: {
@@ -328,6 +354,9 @@ const agentRoutes: FastifyPluginAsync = async (fastify) => {
     if (!existing) return reply.status(404).send({ error: 'Agent not found' });
 
     const d = result.data;
+    if (d.deepgramKey || d.openaiKey) {
+      await assertFeature({ tenantId: req.user.tenantId, userId: req.user.sub }, 'voice.stt');
+    }
     const current = (existing.encryptedSecrets ?? {}) as Record<string, string>;
     const updated: Record<string, string> = { ...current };
     const masked: Record<string, string> = {};

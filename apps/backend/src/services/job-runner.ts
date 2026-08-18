@@ -2,6 +2,7 @@ import { prisma } from '../db/prisma.js';
 import { sanitizeErrorMessage } from './error-sanitizer.js';
 import { reindexAgent } from './indexer.js';
 import { summarizeSession } from './conversation-summarizer.js';
+import type { JobDispatcher, WorkerRunner } from '../contracts/infrastructure.js';
 
 let busy = false;
 
@@ -76,3 +77,29 @@ export function startJobRunner(): NodeJS.Timeout {
     );
   }, 5_000);
 }
+
+export const prismaJobDispatcher: JobDispatcher = {
+  async enqueue(type, payload, options) {
+    const job = await prisma.job.create({
+      data: {
+        type,
+        payload,
+        agentId: options?.agentId ?? null,
+        scheduledAt: options?.runAt ?? new Date(),
+      },
+      select: { id: true },
+    });
+    return job;
+  },
+};
+
+export const prismaJobWorkerRunner: WorkerRunner = {
+  async start() {
+    const timer = startJobRunner();
+    return {
+      async stop() {
+        clearInterval(timer);
+      },
+    };
+  },
+};

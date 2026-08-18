@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { env } from '../../config/env.js';
+import type { StorageAdapter } from '../../contracts/infrastructure.js';
 
 function knowledgeDir(agentId: string): string {
   return path.join(env.UPLOADS_DIR, 'knowledge', agentId);
@@ -25,3 +26,9 @@ export async function deleteFile(storagePath: string): Promise<void> {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
   }
 }
+
+export const localFileStorageAdapter: StorageAdapter = {
+  saveFile,
+  readFile,
+  deleteFile,
+};

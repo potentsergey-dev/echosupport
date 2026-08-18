@@ -20,6 +20,10 @@ export const envSchema = z
       message: 'must be exactly 64 hexadecimal characters',
     }),
     ADMIN_CORS_ORIGINS: z.string().default('http://localhost:5173'),
+    APP_EDITION: z.enum(['lite', 'pro']).default('pro'),
+    ENTITLEMENT_PROVIDER: z.enum(['community', 'cloud']).default('community'),
+    ENTITLEMENT_POLICY_VERSION: z.string().min(1).default('community-v1'),
+    CLOUD_TENANT_PLANS: z.string().optional(),
     UPLOADS_DIR: z.string().default('./uploads'),
     APP_URL: z.string().url().default('http://localhost:3000'),
     PUBLIC_BASE_URL: z.string().url().optional(),
@@ -88,6 +92,14 @@ export const envSchema = z
           message: `invalid URL origin: ${origin}`,
         });
       }
+    }
+
+    if (value.NODE_ENV === 'production' && value.CLOUD_TENANT_PLANS?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['CLOUD_TENANT_PLANS'],
+        message: 'is a dev/test fallback and must not be set in production',
+      });
     }
   });
 

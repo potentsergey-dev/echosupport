@@ -5,7 +5,12 @@ const adminSessionRoutes: FastifyPluginAsync = async (fastify) => {
   // ── GET /admin/agents/:id/sessions ───────────────────────────────────────
   fastify.get<{ Params: { id: string } }>(
     '/agents/:id/sessions',
-    { preHandler: [fastify.requireRole(['OWNER', 'ADMIN'])] },
+    {
+      preHandler: [
+        fastify.requireRole(['OWNER', 'ADMIN']),
+        fastify.requireFeature('operator.inbox'),
+      ],
+    },
     async (req, reply) => {
       const agent = await prisma.agent.findFirst({
         where: { id: req.params.id, tenantId: req.user.tenantId },
@@ -42,7 +47,12 @@ const adminSessionRoutes: FastifyPluginAsync = async (fastify) => {
   // ── DELETE /admin/sessions/:sessionId ────────────────────────────────────
   fastify.delete<{ Params: { sessionId: string } }>(
     '/sessions/:sessionId',
-    { preHandler: [fastify.requireRole(['OWNER', 'ADMIN'])] },
+    {
+      preHandler: [
+        fastify.requireRole(['OWNER', 'ADMIN']),
+        fastify.requireFeature('operator.inbox'),
+      ],
+    },
     async (req, reply) => {
       // Verify the session belongs to one of the tenant's agents
       const session = await prisma.session.findFirst({
@@ -64,45 +74,49 @@ const adminSessionRoutes: FastifyPluginAsync = async (fastify) => {
 
   // ── GET /admin/csat ──────────────────────────────────────────────────────
   // Returns CSAT summary + individual ratings for the tenant
-  fastify.get('/csat', { preHandler: [fastify.authenticate] }, async (req) => {
-    const query = req.query as Record<string, string | undefined>;
-    const agentId = query['agentId'];
+  fastify.get(
+    '/csat',
+    { preHandler: [fastify.authenticate, fastify.requireFeature('analytics.pro')] },
+    async (req) => {
+      const query = req.query as Record<string, string | undefined>;
+      const agentId = query['agentId'];
 
-    const where = {
-      agent: { tenantId: req.user.tenantId },
-      csatRating: { not: null },
-      ...(agentId ? { agentId } : {}),
-    };
+      const where = {
+        agent: { tenantId: req.user.tenantId },
+        csatRating: { not: null },
+        ...(agentId ? { agentId } : {}),
+      };
 
-    const sessions = await prisma.session.findMany({
-      where,
-      select: {
-        id: true,
-        agentId: true,
-        csatRating: true,
-        csatComment: true,
-        visitorName: true,
-        startedAt: true,
-        agent: { select: { name: true } },
-      },
-      orderBy: { startedAt: 'desc' },
-      take: 500,
-    });
+      const sessions = await prisma.session.findMany({
+        where,
+        select: {
+          id: true,
+          agentId: true,
+          csatRating: true,
+          csatComment: true,
+          visitorName: true,
+          startedAt: true,
+          agent: { select: { name: true } },
+        },
+        orderBy: { startedAt: 'desc' },
+        take: 500,
+      });
 
-    const total = sessions.length;
-    const positive = sessions.filter((s) => (s.csatRating ?? 0) > 0).length;
-    const negative = sessions.filter((s) => (s.csatRating ?? 0) < 0).length;
+      const total = sessions.length;
+      const positive = sessions.filter((s) => (s.csatRating ?? 0) > 0).length;
+      const negative = sessions.filter((s) => (s.csatRating ?? 0) < 0).length;
 
-    return {
-      summary: {
-        total,
-        positive,
-        negative,
-        score: total > 0 ? Math.round((positive / total) * 100) : null,
-      },
-      ratings: sessions,
-    };
-  });
+      return {
+        summary: {
+          total,
+          positive,
+          negative,
+          score: total > 0 ? Math.round((positive / total) * 100) : null,
+        },
+        ratings: sessions,
+      };
+    },
+  );
 };
 
 export default adminSessionRoutes;

@@ -35,6 +35,8 @@ import {
 import { getActiveServicesForSpecialist } from './specialist-services.js';
 import type { BookingContext } from './booking-context.js';
 import { hasExplicitBookingDateTime } from './booking-context.js';
+import { assertFeature } from './entitlements.js';
+import type { EntitlementSnapshot, FeatureKey } from '../contracts/entitlements.js';
 
 function uniqueStrings(values: Array<string | null | undefined>): string[] {
   return [...new Set(values.map((value) => value?.trim()).filter(Boolean) as string[])];
@@ -269,6 +271,25 @@ export const AGENT_TOOLS: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   },
 ];
 
+const gatedFeatureByTool: Partial<Record<string, FeatureKey>> = {
+  request_handoff: 'human.handoff',
+  list_specialists: 'specialists.services',
+  list_services: 'specialists.services',
+  find_available_slots: 'booking.workflow',
+  create_appointment_request: 'booking.workflow',
+};
+
+export function filterAgentToolsForEntitlements(
+  tools: OpenAI.Chat.Completions.ChatCompletionTool[],
+  entitlements: EntitlementSnapshot,
+): OpenAI.Chat.Completions.ChatCompletionTool[] {
+  return tools.filter((tool) => {
+    if (tool.type !== 'function') return true;
+    const gatedFeature = gatedFeatureByTool[tool.function.name];
+    return !gatedFeature || entitlements.features[gatedFeature]?.enabled === true;
+  });
+}
+
 // ── Tool execution ────────────────────────────────────────────────────────────
 
 export interface ToolExecutionContext {
@@ -355,6 +376,11 @@ export async function executeTool(
   args: Record<string, unknown>,
   ctx: ToolExecutionContext,
 ): Promise<ToolResult> {
+  const gatedFeature = gatedFeatureByTool[toolName];
+  if (gatedFeature) {
+    await assertFeature({ tenantId: ctx.tenantId }, gatedFeature);
+  }
+
   switch (toolName) {
     case 'suggest_replies': {
       const replies = normalizeQuickReplies(args['replies']);
