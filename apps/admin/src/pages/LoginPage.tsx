@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { BotIcon } from 'lucide-react';
 import { login } from '../lib/api';
 import { setToken, setRole } from '../lib/auth';
+import { queryClient } from '../lib/query-client';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Label } from '../components/ui/Label';
@@ -20,6 +21,7 @@ export function LoginPage() {
     setLoading(true);
     try {
       const { token, user } = await login(email, password);
+      queryClient.clear();
       setToken(token);
       setRole(user.role);
       navigate('/agents');

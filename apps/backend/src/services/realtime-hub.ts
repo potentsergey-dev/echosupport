@@ -5,12 +5,9 @@
  * Phase 13: replace with Redis pub/sub for horizontal scaling.
  */
 
-// ── Types ────────────────────────────────────────────────────────────────────
+import type { RealtimeEventBus, RealtimeSocket } from '../contracts/infrastructure.js';
 
-export interface RealtimeSocket {
-  readyState: number;
-  send(payload: string): void;
-}
+// ── Types ────────────────────────────────────────────────────────────────────
 
 const OPEN_WEBSOCKET = 1;
 
@@ -135,3 +132,12 @@ export function getRealtimeConnectionCounts(): {
     }, 0),
   };
 }
+
+export const inMemoryRealtimeEventBus: RealtimeEventBus<HubEvent> = {
+  registerOperator,
+  unregisterOperator,
+  registerVisitor,
+  unregisterVisitor,
+  publishToOperators,
+  publishToVisitor,
+};

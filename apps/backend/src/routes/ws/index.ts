@@ -14,6 +14,7 @@ import {
 } from '../../services/realtime-hub.js';
 import { env } from '../../config/env.js';
 import { isAdminOriginAllowed, isOriginAllowed } from '../../services/origin-policy.js';
+import { assertFeature } from '../../services/entitlements.js';
 
 const OPERATOR_ROLES = ['OWNER', 'ADMIN', 'OPERATOR'];
 
@@ -63,6 +64,14 @@ const wsRoutes: FastifyPluginAsync = async (fastify) => {
     if (!OPERATOR_ROLES.includes(role)) {
       socket.send(JSON.stringify({ type: 'error', message: 'Forbidden' }));
       socket.close(1008, 'Forbidden');
+      return;
+    }
+
+    try {
+      await assertFeature({ tenantId, userId: req.user.sub }, 'operator.inbox');
+    } catch {
+      socket.send(JSON.stringify({ type: 'error', code: 'FEATURE_NOT_AVAILABLE' }));
+      socket.close(1008, 'Feature not available');
       return;
     }
 

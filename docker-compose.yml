@@ -28,6 +28,7 @@ services:
       target: runner
       args:
         VITE_APP_EDITION: ${APP_EDITION:-pro}
+    command: node dist/index.js
     restart: unless-stopped
     environment:
       NODE_ENV: production
@@ -42,6 +43,10 @@ services:
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
       APP_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
       ADMIN_CORS_ORIGINS: ${ADMIN_CORS_ORIGINS:-http://localhost:8080}
+      APP_EDITION: ${APP_EDITION:-pro}
+      ENTITLEMENT_PROVIDER: ${ENTITLEMENT_PROVIDER:-community}
+      ENTITLEMENT_POLICY_VERSION: ${ENTITLEMENT_POLICY_VERSION:-community-v1}
+      CLOUD_TENANT_PLANS: ${CLOUD_TENANT_PLANS:-}
       UPLOADS_DIR: /app/apps/backend/uploads
       OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
       OPENROUTER_EMBEDDING_API_KEY: ${OPENROUTER_EMBEDDING_API_KEY:-}
@@ -57,10 +62,81 @@ services:
     volumes:
       - uploads_data:/app/apps/backend/uploads
     depends_on:
+      migrate:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
       qdrant:
         condition: service_started
+
+  worker:
+    build:
+      context: .
+      target: runner
+      args:
+        VITE_APP_EDITION: ${APP_EDITION:-pro}
+    command: node dist/worker.js
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-echosupport}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-echosupport}
+      DIRECT_URL: postgresql://${POSTGRES_USER:-echosupport}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-echosupport}
+      QDRANT_URL: http://qdrant:6333
+      QDRANT_API_KEY: ${QDRANT_API_KEY:-}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:?Set MASTER_ENCRYPTION_KEY in .env}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      APP_URL: ${PUBLIC_BASE_URL:-http://localhost:8080}
+      ADMIN_CORS_ORIGINS: ${ADMIN_CORS_ORIGINS:-http://localhost:8080}
+      APP_EDITION: ${APP_EDITION:-pro}
+      ENTITLEMENT_PROVIDER: ${ENTITLEMENT_PROVIDER:-community}
+      ENTITLEMENT_POLICY_VERSION: ${ENTITLEMENT_POLICY_VERSION:-community-v1}
+      CLOUD_TENANT_PLANS: ${CLOUD_TENANT_PLANS:-}
+      UPLOADS_DIR: /app/apps/backend/uploads
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      OPENROUTER_EMBEDDING_API_KEY: ${OPENROUTER_EMBEDDING_API_KEY:-}
+      OPENROUTER_BASE_URL: ${OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      DEEPGRAM_API_KEY: ${DEEPGRAM_API_KEY:-}
+      MAX_DOCUMENT_SIZE_MB: ${MAX_DOCUMENT_SIZE_MB:-50}
+      CRON_SECRET: ${CRON_SECRET:?Set CRON_SECRET in .env}
+    volumes:
+      - uploads_data:/app/apps/backend/uploads
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      qdrant:
+        condition: service_started
+
+  migrate:
+    build:
+      context: .
+      target: runner
+      args:
+        VITE_APP_EDITION: ${APP_EDITION:-pro}
+    command: sh -c "./node_modules/.bin/prisma migrate deploy && node dist/db/seed.js"
+    restart: 'no'
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-echosupport}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-echosupport}
+      DIRECT_URL: postgresql://${POSTGRES_USER:-echosupport}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-echosupport}
+      JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
+      MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:?Set MASTER_ENCRYPTION_KEY in .env}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:?Set ADMIN_EMAIL in .env}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      INITIAL_OPERATOR_EMAIL: ${INITIAL_OPERATOR_EMAIL:-}
+      INITIAL_OPERATOR_PASSWORD: ${INITIAL_OPERATOR_PASSWORD:-}
+      ADMIN_CORS_ORIGINS: ${ADMIN_CORS_ORIGINS:-http://localhost:8080}
+      APP_EDITION: ${APP_EDITION:-pro}
+      ENTITLEMENT_PROVIDER: ${ENTITLEMENT_PROVIDER:-community}
+      ENTITLEMENT_POLICY_VERSION: ${ENTITLEMENT_POLICY_VERSION:-community-v1}
+      CLOUD_TENANT_PLANS: ${CLOUD_TENANT_PLANS:-}
+      CRON_SECRET: ${CRON_SECRET:?Set CRON_SECRET in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   nginx:
     image: nginx:1.27-alpine

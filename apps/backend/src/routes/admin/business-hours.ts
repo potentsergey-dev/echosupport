@@ -27,7 +27,12 @@ const businessHoursRoutes: FastifyPluginAsync = async (fastify) => {
   // GET /admin/agents/:id/business-hours
   fastify.get(
     '/agents/:id/business-hours',
-    { preHandler: [fastify.requireRole(['OWNER', 'ADMIN'])] },
+    {
+      preHandler: [
+        fastify.requireRole(['OWNER', 'ADMIN']),
+        fastify.requireFeature('booking.workflow'),
+      ],
+    },
     async (req, reply) => {
       const { id } = req.params as { id: string };
 
@@ -56,7 +61,12 @@ const businessHoursRoutes: FastifyPluginAsync = async (fastify) => {
   // PUT /admin/agents/:id/business-hours (upsert)
   fastify.put(
     '/agents/:id/business-hours',
-    { preHandler: [fastify.requireRole(['OWNER', 'ADMIN'])] },
+    {
+      preHandler: [
+        fastify.requireRole(['OWNER', 'ADMIN']),
+        fastify.requireFeature('booking.workflow'),
+      ],
+    },
     async (req, reply) => {
       const { id } = req.params as { id: string };
 

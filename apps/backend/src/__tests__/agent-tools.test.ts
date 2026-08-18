@@ -1,5 +1,5 @@
 /* eslint-disable @typescript-eslint/unbound-method */
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../db/prisma.js', () => ({
   prisma: {
@@ -42,10 +42,19 @@ import {
   parseBusinessDateTime,
 } from '../services/slot-finder.js';
 import { getActiveServicesForSpecialist } from '../services/specialist-services.js';
-import { AGENT_TOOLS, executeTool } from '../services/agent-tools.js';
+import {
+  AGENT_TOOLS,
+  executeTool,
+  filterAgentToolsForEntitlements,
+} from '../services/agent-tools.js';
+import {
+  CommunityEntitlementProvider,
+  setEntitlementProviderForTests,
+} from '../services/entitlements.js';
 
 describe('agent tools', () => {
   beforeEach(() => vi.clearAllMocks());
+  afterEach(() => setEntitlementProviderForTests(null));
 
   it('returns specialist matching hints for inflected Russian names', async () => {
     vi.mocked(prisma.agent.findUnique).mockResolvedValueOnce({ tenantId: 'tenant-1' } as never);
@@ -78,6 +87,36 @@ describe('agent tools', () => {
     expect(createTool?.type === 'function' ? createTool.function.description : '').toContain(
       'A group slot returned by find_available_slots is bookable',
     );
+  });
+
+  it('blocks direct handoff tool execution for Lite tenants', async () => {
+    setEntitlementProviderForTests(new CommunityEntitlementProvider('lite'));
+
+    await expect(
+      executeTool(
+        'request_handoff',
+        { reason: 'direct bypass attempt' },
+        { sessionId: 'session-1', agentId: 'agent-1', tenantId: 'tenant-lite' },
+      ),
+    ).rejects.toMatchObject({
+      code: 'FEATURE_NOT_AVAILABLE',
+      details: { feature: 'human.handoff', tenantId: 'tenant-lite', plan: 'Lite' },
+    });
+  });
+
+  it('filters unavailable tools before sending tool definitions to the LLM', async () => {
+    const snapshot = await new CommunityEntitlementProvider('lite').getSnapshot({
+      tenantId: 'tenant-lite',
+    });
+    const names = filterAgentToolsForEntitlements(AGENT_TOOLS, snapshot)
+      .filter((tool) => tool.type === 'function')
+      .map((tool) => tool.function.name);
+
+    expect(names).toContain('suggest_replies');
+    expect(names).toContain('get_business_hours');
+    expect(names).not.toContain('request_handoff');
+    expect(names).not.toContain('list_specialists');
+    expect(names).not.toContain('create_appointment_request');
   });
 
   it('allows appointment creation with specialist and service names when IDs are uncertain', () => {

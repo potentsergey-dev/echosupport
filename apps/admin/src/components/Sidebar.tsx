@@ -22,7 +22,7 @@ import { Input } from './ui/Input';
 import { Label } from './ui/Label';
 import { Textarea } from './ui/Textarea';
 import type { AgentListItem, InboxSession } from '../types';
-import { isLiteEdition } from '../lib/app-edition';
+import { useFeature } from '../lib/bootstrap';
 
 function NewAgentModal({ onClose }: { onClose: () => void }) {
   const qc = useQueryClient();
@@ -96,8 +96,12 @@ export function Sidebar({ activeAgentId }: { activeAgentId?: string | undefined 
   const [showNewModal, setShowNewModal] = useState(false);
   const isAdmin = isAdminRole();
   const [workingMode, setWorkingMode] = useWorkingMode();
-  const canUseWorkingMode = isAdmin && !isLiteEdition;
-  const showConfiguration = isAdmin && (isLiteEdition || !workingMode);
+  const canUseOperatorInbox = useFeature('operator.inbox');
+  const canUseSpecialists = useFeature('specialists.services');
+  const canUseBooking = useFeature('booking.workflow');
+  const canUseAnalytics = useFeature('analytics.pro');
+  const canUseWorkingMode = isAdmin && canUseOperatorInbox;
+  const showConfiguration = isAdmin && (!canUseOperatorInbox || !workingMode);
 
   const { data: agents = [] } = useQuery<AgentListItem[]>({
     queryKey: ['agents'],
@@ -108,7 +112,7 @@ export function Sidebar({ activeAgentId }: { activeAgentId?: string | undefined 
   const { data: openSessions = [] } = useQuery<InboxSession[]>({
     queryKey: ['sidebar-inbox-summary'],
     queryFn: () => listInboxSessions({ status: 'ALL_OPEN' }),
-    enabled: !isLiteEdition,
+    enabled: canUseOperatorInbox,
     refetchInterval: 15000,
   });
 
@@ -167,52 +171,53 @@ export function Sidebar({ activeAgentId }: { activeAgentId?: string | undefined 
         )}
 
         <nav className="flex-1 overflow-y-auto px-2 py-1">
-          {!isLiteEdition && (
+          {canUseOperatorInbox && (
+            <Link to="/inbox" className={navClass(location.pathname === '/inbox')}>
+              <InboxIcon size={16} className="shrink-0" />
+              <span className="flex-1">Входящие</span>
+              {unreadInboxCount > 0 ? (
+                <span className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-bold leading-none text-white">
+                  {unreadInboxCount > 99 ? '99+' : unreadInboxCount}
+                </span>
+              ) : openInboxCount > 0 ? (
+                <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-semibold leading-none text-gray-700">
+                  {openInboxCount > 99 ? '99+' : openInboxCount}
+                </span>
+              ) : null}
+            </Link>
+          )}
+          {canUseBooking && (
+            <Link
+              to="/appointments"
+              className={navClass(location.pathname.startsWith('/appointments'))}
+            >
+              <CalendarIcon size={16} className="shrink-0" />
+              <span className="flex-1">Записи</span>
+            </Link>
+          )}
+          {!workingMode && canUseSpecialists && (
             <>
-              <Link to="/inbox" className={navClass(location.pathname === '/inbox')}>
-                <InboxIcon size={16} className="shrink-0" />
-                <span className="flex-1">Входящие</span>
-                {unreadInboxCount > 0 ? (
-                  <span className="rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-bold leading-none text-white">
-                    {unreadInboxCount > 99 ? '99+' : unreadInboxCount}
-                  </span>
-                ) : openInboxCount > 0 ? (
-                  <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-semibold leading-none text-gray-700">
-                    {openInboxCount > 99 ? '99+' : openInboxCount}
-                  </span>
-                ) : null}
-              </Link>
               <Link
-                to="/appointments"
-                className={navClass(location.pathname.startsWith('/appointments'))}
+                to="/specialists"
+                className={navClass(location.pathname.startsWith('/specialists'))}
               >
-                <CalendarIcon size={16} className="shrink-0" />
-                <span className="flex-1">Записи</span>
+                <UsersIcon size={16} className="shrink-0" />
+                <span className="flex-1">Специалисты</span>
               </Link>
-              {!workingMode && (
-                <>
-                  <Link
-                    to="/specialists"
-                    className={navClass(location.pathname.startsWith('/specialists'))}
-                  >
-                    <UsersIcon size={16} className="shrink-0" />
-                    <span className="flex-1">Специалисты</span>
-                  </Link>
-                  <Link
-                    to="/services"
-                    className={navClass(location.pathname.startsWith('/services'))}
-                  >
-                    <LayersIcon size={16} className="shrink-0" />
-                    <span className="flex-1">Услуги</span>
-                  </Link>
-                </>
-              )}
-              <Link to="/csat" className={navClass(location.pathname.startsWith('/csat'))}>
-                <StarIcon size={16} className="shrink-0" />
-                <span className="flex-1">CSAT</span>
+              <Link to="/services" className={navClass(location.pathname.startsWith('/services'))}>
+                <LayersIcon size={16} className="shrink-0" />
+                <span className="flex-1">Услуги</span>
               </Link>
-              <div className="my-1 border-t border-gray-100" />
             </>
+          )}
+          {canUseAnalytics && (
+            <Link to="/csat" className={navClass(location.pathname.startsWith('/csat'))}>
+              <StarIcon size={16} className="shrink-0" />
+              <span className="flex-1">CSAT</span>
+            </Link>
+          )}
+          {(canUseOperatorInbox || canUseBooking || canUseSpecialists || canUseAnalytics) && (
+            <div className="my-1 border-t border-gray-100" />
           )}
 
           {showConfiguration &&

@@ -1,4 +1,5 @@
 import { getToken, clearToken } from './auth';
+import { queryClient } from './query-client';
 import type {
   Agent,
   AgentListItem,
@@ -15,6 +16,7 @@ import type {
   SpecialistWorkingHours,
   Service,
   Appointment,
+  BootstrapContext,
 } from '../types';
 
 const BASE_URL = (import.meta.env['VITE_API_URL'] as string | undefined) ?? '';
@@ -48,6 +50,10 @@ function formatApiError(error: unknown, fallback: string): string {
   }
 
   if (error && typeof error === 'object') {
+    if ('message' in error && typeof error.message === 'string' && error.message.trim()) {
+      return translateApiError(error.message);
+    }
+
     const fieldErrors = Object.entries(error as Record<string, unknown>)
       .flatMap(([field, value]) => {
         if (!Array.isArray(value)) return [];
@@ -79,6 +85,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     if (res.status === 401) {
       clearToken();
+      queryClient.clear();
       window.location.href = '/admin/login';
       throw new Error('Session expired. Please log in again.');
     }
@@ -102,6 +109,10 @@ export function login(
     method: 'POST',
     body: JSON.stringify({ email, password }),
   });
+}
+
+export function getBootstrap(): Promise<BootstrapContext> {
+  return request('/auth/bootstrap');
 }
 
 // ── Agents ───────────────────────────────────────────────────────────────────

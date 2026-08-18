@@ -11,6 +11,8 @@ import path from 'path';
 import fs from 'node:fs';
 import { env } from './config/env.js';
 import authPlugin from './plugins/auth.js';
+import dependenciesPlugin from './plugins/dependencies.js';
+import entitlementsPlugin from './plugins/entitlements.js';
 import authRoutes from './routes/auth/login.js';
 import agentRoutes from './routes/admin/agents.js';
 import documentRoutes from './routes/admin/documents.js';
@@ -31,8 +33,12 @@ import { prisma } from './db/prisma.js';
 import { isAdminOriginAllowed } from './services/origin-policy.js';
 import { checkQdrantConnection } from './adapters/vectorstore/qdrant.js';
 import { redactSecrets, summarizeError } from './services/error-sanitizer.js';
+import { isApiError, serializeApiError } from './services/api-errors.js';
+import type { AppDependencies } from './services/dependencies.js';
 
-export async function buildServer() {
+export async function buildServer(
+  options: { startBackgroundWorkers?: boolean; dependencies?: AppDependencies } = {},
+) {
   const app = Fastify({
     logger: {
       level: env.NODE_ENV === 'production' ? 'info' : 'debug',
@@ -125,12 +131,26 @@ export async function buildServer() {
 
   // Auth plugin — adds fastify.authenticate decorator (must be before route plugins)
   await app.register(authPlugin);
+  await app.register(
+    dependenciesPlugin,
+    options.dependencies ? { dependencies: options.dependencies } : {},
+  );
+  await app.register(entitlementsPlugin);
 
-  app.setErrorHandler((error: FastifyError, _req, reply) => {
+  app.setErrorHandler((error: FastifyError, req, reply) => {
     app.log.error({ err: summarizeError(error) }, 'Request failed');
+    if (isApiError(error)) {
+      void reply.status(error.statusCode).send(serializeApiError(error, req.id));
+      return;
+    }
     const statusCode = error.statusCode ?? 500;
     void reply.status(statusCode).send({
-      error: statusCode >= 500 ? 'Internal Server Error' : error.message,
+      error: {
+        code: statusCode >= 500 ? 'INTERNAL_SERVER_ERROR' : 'REQUEST_ERROR',
+        message: statusCode >= 500 ? 'Internal Server Error' : error.message,
+        requestId: req.id,
+        details: {},
+      },
     });
   });
 
@@ -171,18 +191,15 @@ export async function buildServer() {
   // Internal routes (cron triggers etc. — protected by CRON_SECRET)
   await app.register(internalCronRoutes, { prefix: '/api/v1/internal' });
 
-  // Start background job runner
-  const jobRunner = startJobRunner();
-
-  // Start periodic TTL cleanup for expired sessions (every 15 minutes)
-  const cleanupRunner = startCleanupRunner();
-
-  // Start operator notification outbox worker (every 10 seconds)
-  void startOperatorNotifier();
+  const backgroundRunners: NodeJS.Timeout[] = [];
+  if (options.startBackgroundWorkers === true) {
+    backgroundRunners.push(startJobRunner());
+    backgroundRunners.push(startCleanupRunner());
+    void startOperatorNotifier();
+  }
 
   app.addHook('onClose', async () => {
-    clearInterval(jobRunner);
-    clearInterval(cleanupRunner);
+    for (const runner of backgroundRunners) clearInterval(runner);
     stopOperatorNotifier();
     await prisma.$disconnect();
   });

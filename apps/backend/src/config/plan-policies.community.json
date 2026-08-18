@@ -1,0 +1,47 @@
+{
+  "policyVersion": "community-v1",
+  "plans": {
+    "Lite": {
+      "features": {
+        "agent.configuration": true,
+        "operator.inbox": false,
+        "human.handoff": false,
+        "specialists.services": false,
+        "booking.workflow": false,
+        "voice.stt": false,
+        "analytics.pro": false,
+        "branding.pro": false
+      },
+      "quotas": {
+        "agents": { "limit": 1, "unit": "count", "enforced": true },
+        "knowledge.documents": { "limit": null, "unit": "count", "enforced": false },
+        "knowledge.sources": { "limit": null, "unit": "count", "enforced": false },
+        "visitor.messagesPerHour": { "limit": null, "unit": "messages", "enforced": false },
+        "visitor.sessionsPerDay": { "limit": null, "unit": "sessions", "enforced": false },
+        "voice.minutesPerMonth": { "limit": null, "unit": "minutes", "enforced": false },
+        "appointmentsPerMonth": { "limit": null, "unit": "appointments", "enforced": false }
+      }
+    },
+    "PRO": {
+      "features": {
+        "agent.configuration": true,
+        "operator.inbox": true,
+        "human.handoff": true,
+        "specialists.services": true,
+        "booking.workflow": true,
+        "voice.stt": true,
+        "analytics.pro": true,
+        "branding.pro": true
+      },
+      "quotas": {
+        "agents": { "limit": null, "unit": "count", "enforced": true },
+        "knowledge.documents": { "limit": null, "unit": "count", "enforced": false },
+        "knowledge.sources": { "limit": null, "unit": "count", "enforced": false },
+        "visitor.messagesPerHour": { "limit": null, "unit": "messages", "enforced": false },
+        "visitor.sessionsPerDay": { "limit": null, "unit": "sessions", "enforced": false },
+        "voice.minutesPerMonth": { "limit": null, "unit": "minutes", "enforced": false },
+        "appointmentsPerMonth": { "limit": null, "unit": "appointments", "enforced": false }
+      }
+    }
+  }
+}

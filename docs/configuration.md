@@ -1,34 +1,37 @@
 # Configuration
 
-| Variable                       | Required    | Default                 | Purpose                                         |
-| ------------------------------ | ----------- | ----------------------- | ----------------------------------------------- |
-| `POSTGRES_DB`                  | Docker      | `echosupport`           | PostgreSQL database                             |
-| `POSTGRES_USER`                | Docker      | `echosupport`           | PostgreSQL user                                 |
-| `POSTGRES_PASSWORD`            | Yes         | —                       | PostgreSQL password                             |
-| `NODE_ENV`                     | Internal    | `production`            | Backend runtime mode                            |
-| `HOST`                         | Internal    | `0.0.0.0`               | Backend listen address                          |
-| `PORT`                         | Internal    | `3000`                  | Backend listen port                             |
-| `DATABASE_URL`                 | Non-Compose | —                       | PostgreSQL connection URL                       |
-| `DIRECT_URL`                   | No          | `DATABASE_URL`          | Direct URL used by migrations                   |
-| `JWT_SECRET`                   | Yes         | —                       | JWT signing secret, at least 32 characters      |
-| `MASTER_ENCRYPTION_KEY`        | Yes         | —                       | 64 hex characters; encrypts agent secrets       |
-| `CRON_SECRET`                  | Docker      | —                       | Internal cron authentication secret             |
-| `ADMIN_EMAIL`                  | Docker/seed | —                       | Initial owner email                             |
-| `ADMIN_PASSWORD`               | Docker/seed | —                       | Initial owner password, at least 12 characters  |
-| `PUBLIC_BASE_URL`              | Production  | `APP_URL`               | Public URL used by embed snippets and uploads   |
-| `APP_URL`                      | Yes         | `http://localhost:3000` | Backend identity and fallback public URL        |
-| `ADMIN_CORS_ORIGINS`           | Yes         | `http://localhost:5173` | Comma-separated trusted admin origins           |
-| `UPLOADS_DIR`                  | No          | `./uploads`             | Persistent uploads directory                    |
-| `QDRANT_URL`                   | Yes         | `http://localhost:6333` | Qdrant API URL                                  |
-| `QDRANT_API_KEY`               | Cloud only  | —                       | Qdrant Cloud API key                            |
-| `OPENROUTER_API_KEY`           | Usually     | empty                   | Default chat completion key                     |
-| `OPENROUTER_EMBEDDING_API_KEY` | No          | empty                   | Dedicated OpenRouter embeddings key             |
-| `OPENROUTER_BASE_URL`          | No          | OpenRouter API          | OpenAI-compatible API base URL                  |
-| `OPENAI_API_KEY`               | No          | empty                   | OpenAI embeddings/Whisper key                   |
-| `DEEPGRAM_API_KEY`             | No          | empty                   | Deepgram speech-to-text key                     |
-| `MAX_DOCUMENT_SIZE_MB`         | No          | `50`                    | Maximum uploaded document size                  |
-| `HTTP_PORT`                    | Docker      | `8080`                  | Host HTTP port                                  |
-| `APP_EDITION`                  | Docker      | `pro`                   | `pro` for full UI, `lite` for lightweight admin |
+| Variable                       | Required    | Default                 | Purpose                                                    |
+| ------------------------------ | ----------- | ----------------------- | ---------------------------------------------------------- |
+| `POSTGRES_DB`                  | Docker      | `echosupport`           | PostgreSQL database                                        |
+| `POSTGRES_USER`                | Docker      | `echosupport`           | PostgreSQL user                                            |
+| `POSTGRES_PASSWORD`            | Yes         | —                       | PostgreSQL password                                        |
+| `NODE_ENV`                     | Internal    | `production`            | Backend runtime mode                                       |
+| `HOST`                         | Internal    | `0.0.0.0`               | Backend listen address                                     |
+| `PORT`                         | Internal    | `3000`                  | Backend listen port                                        |
+| `DATABASE_URL`                 | Non-Compose | —                       | PostgreSQL connection URL                                  |
+| `DIRECT_URL`                   | No          | `DATABASE_URL`          | Direct URL used by migrations                              |
+| `JWT_SECRET`                   | Yes         | —                       | JWT signing secret, at least 32 characters                 |
+| `MASTER_ENCRYPTION_KEY`        | Yes         | —                       | 64 hex characters; encrypts agent secrets                  |
+| `CRON_SECRET`                  | Docker      | —                       | Internal cron authentication secret                        |
+| `ADMIN_EMAIL`                  | Docker/seed | —                       | Initial owner email                                        |
+| `ADMIN_PASSWORD`               | Docker/seed | —                       | Initial owner password, at least 12 characters             |
+| `PUBLIC_BASE_URL`              | Production  | `APP_URL`               | Public URL used by embed snippets and uploads              |
+| `APP_URL`                      | Yes         | `http://localhost:3000` | Backend identity and fallback public URL                   |
+| `ADMIN_CORS_ORIGINS`           | Yes         | `http://localhost:5173` | Comma-separated trusted admin origins                      |
+| `UPLOADS_DIR`                  | No          | `./uploads`             | Persistent uploads directory                               |
+| `QDRANT_URL`                   | Yes         | `http://localhost:6333` | Qdrant API URL                                             |
+| `QDRANT_API_KEY`               | Cloud only  | —                       | Qdrant Cloud API key                                       |
+| `OPENROUTER_API_KEY`           | Usually     | empty                   | Default chat completion key                                |
+| `OPENROUTER_EMBEDDING_API_KEY` | No          | empty                   | Dedicated OpenRouter embeddings key                        |
+| `OPENROUTER_BASE_URL`          | No          | OpenRouter API          | OpenAI-compatible API base URL                             |
+| `OPENAI_API_KEY`               | No          | empty                   | OpenAI embeddings/Whisper key                              |
+| `DEEPGRAM_API_KEY`             | No          | empty                   | Deepgram speech-to-text key                                |
+| `MAX_DOCUMENT_SIZE_MB`         | No          | `50`                    | Maximum uploaded document size                             |
+| `HTTP_PORT`                    | Docker      | `8080`                  | Host HTTP port                                             |
+| `APP_EDITION`                  | Docker      | `pro`                   | `pro` for full UI, `lite` for lightweight admin            |
+| `ENTITLEMENT_PROVIDER`         | No          | `community`             | Runtime entitlement provider: `community` or `cloud`       |
+| `ENTITLEMENT_POLICY_VERSION`   | No          | `community-v1`          | Policy version returned by entitlement bootstrap           |
+| `CLOUD_TENANT_PLANS`           | Cloud only  | empty                   | Comma-separated tenant plan mapping for the Cloud provider |
 
 Agent-specific provider keys saved in the admin panel are encrypted with
 `MASTER_ENCRYPTION_KEY` and override global provider keys.
@@ -50,6 +53,13 @@ base, and Embed tabs visible. It hides Inbox, Appointments, Specialists, Service
 agent Sessions, Business hours, and Anti-abuse tabs from the admin UI. In Lite, the API keys
 tab focuses on OpenRouter chat and embedding keys. Use `APP_EDITION=pro` or omit the variable
 for the full product UI. See [Lite Installation](lite-installation.md) for the step-by-step Lite setup.
+
+Phase 1 runtime entitlements use `ENTITLEMENT_PROVIDER`. Community installations normally
+keep `ENTITLEMENT_PROVIDER=community`, where `APP_EDITION` is only a self-hosted policy
+preset and frontend fallback. Cloud uses one build for Lite and PRO tenants; set
+`ENTITLEMENT_PROVIDER=cloud` and provide tenant-specific plan mapping through the Cloud
+composition root. `CLOUD_TENANT_PLANS` is a temporary local/testing mapping format such as
+`tenant_a=PRO,tenant_b=Lite`.
 
 Changing `MASTER_ENCRYPTION_KEY` makes existing encrypted keys unreadable. Back it up in
 a password manager.

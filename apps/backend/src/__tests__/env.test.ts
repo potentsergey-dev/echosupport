@@ -47,6 +47,16 @@ describe('environment validation', () => {
     }
   });
 
+  it('rejects temporary Cloud tenant plan mapping in production', () => {
+    expect(() =>
+      parseEnv({
+        ...validEnv,
+        ENTITLEMENT_PROVIDER: 'cloud',
+        CLOUD_TENANT_PLANS: 'tenant-a=PRO',
+      }),
+    ).toThrow(ZodError);
+  });
+
   it('formats validation failures without dumping secret values', () => {
     const result = (() => {
       try {

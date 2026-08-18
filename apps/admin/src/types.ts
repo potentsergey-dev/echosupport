@@ -6,6 +6,28 @@ export type DocumentStatus = 'PENDING' | 'INDEXING' | 'INDEXED' | 'FAILED';
 export type JobStatus = 'PENDING' | 'RUNNING' | 'DONE' | 'FAILED' | 'CANCELLED';
 export type SessionStatus = 'ACTIVE' | 'WAITING_OPERATOR' | 'WITH_OPERATOR' | 'RESOLVED' | 'CLOSED';
 export type MessageAuthorType = 'VISITOR' | 'AGENT' | 'OPERATOR' | 'SYSTEM';
+export type PlanName = 'Lite' | 'PRO';
+export type FeatureKey =
+  | 'agent.configuration'
+  | 'operator.inbox'
+  | 'human.handoff'
+  | 'specialists.services'
+  | 'booking.workflow'
+  | 'voice.stt'
+  | 'analytics.pro'
+  | 'branding.pro';
+
+export interface BootstrapContext {
+  user: { id: string; email: string; role: string };
+  workspace: { id: string; tenantId: string };
+  plan: PlanName;
+  features: Record<FeatureKey, boolean>;
+  quotas: Record<string, { limit: number | null; used?: number; unit: string }>;
+  subscription: { state: string; access: string; reason?: string };
+  policyVersion: string;
+  computedAt: string;
+  expiresAt: string;
+}
 
 export interface Agent {
   id: string;

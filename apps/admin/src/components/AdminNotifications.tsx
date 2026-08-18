@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { useNavigate } from 'react-router-dom';
 import { BellRingIcon, XIcon } from 'lucide-react';
 import { getRole, getToken } from '../lib/auth';
-import { isLiteEdition } from '../lib/app-edition';
+import { useFeature } from '../lib/bootstrap';
 
 type BrowserNotificationStatus = 'unsupported' | 'insecure' | 'default' | 'granted' | 'denied';
 
@@ -103,6 +103,7 @@ export function AdminNotifications({
 }: {
   addToast: (message: string, type?: 'success' | 'error' | 'info') => void;
 }) {
+  const canUseOperatorInbox = useFeature('operator.inbox');
   const qc = useQueryClient();
   const navigate = useNavigate();
   const [visibleNotification, setVisibleNotification] = useState<VisibleNotification | null>(null);
@@ -230,7 +231,7 @@ export function AdminNotifications({
 
   const connect = useCallback(() => {
     const token = getToken();
-    if (!token || isLiteEdition || !canReceiveOperatorNotifications()) return;
+    if (!token || !canUseOperatorInbox || !canReceiveOperatorNotifications()) return;
     if (reconnectTimerRef.current) {
       clearTimeout(reconnectTimerRef.current);
       reconnectTimerRef.current = null;
@@ -263,7 +264,7 @@ export function AdminNotifications({
         reconnectTimerRef.current = setTimeout(connect, 5000);
       }
     };
-  }, [notifyHandoff, qc]);
+  }, [canUseOperatorInbox, notifyHandoff, qc]);
 
   useEffect(() => {
     shouldReconnectRef.current = true;
@@ -277,7 +278,7 @@ export function AdminNotifications({
     };
   }, [connect]);
 
-  if (!canReceiveOperatorNotifications() || isLiteEdition) return null;
+  if (!canReceiveOperatorNotifications() || !canUseOperatorInbox) return null;
 
   const shouldShowSetup =
     !setupDismissed &&

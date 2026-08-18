@@ -13,7 +13,12 @@ import { transcribe as transcribeDeepgram } from '../../adapters/stt/deepgram.js
 import { transcribe as transcribeWhisper } from '../../adapters/stt/whisper.js';
 import { env } from '../../config/env.js';
 import { checkMessageLimit, checkSessionLimit } from '../../services/visitor-rate-limit.js';
-import { AGENT_TOOLS, executeTool } from '../../services/agent-tools.js';
+import {
+  AGENT_TOOLS,
+  executeTool,
+  filterAgentToolsForEntitlements,
+  type ToolResult,
+} from '../../services/agent-tools.js';
 import {
   formatBusinessNow,
   getBusinessTimezone,
@@ -24,6 +29,8 @@ import { csatSubmissionSchema } from '../../services/csat.js';
 import { summarizeError } from '../../services/error-sanitizer.js';
 import { isOriginAllowed } from '../../services/origin-policy.js';
 import { publishToOperators } from '../../services/realtime-hub.js';
+import { assertFeature } from '../../services/entitlements.js';
+import { isApiError } from '../../services/api-errors.js';
 import {
   buildBookingDateQuestion,
   buildBookingStateContext,
@@ -530,6 +537,10 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
         // Mutable messages for tool-call loop
         const llmMessages = [...messages] as ChatMessage[];
         let endedWithToolCalls = false;
+        const entitlements = await fastify.deps.entitlements.getSnapshot({
+          tenantId: session.agent.tenantId,
+        });
+        const availableTools = filterAgentToolsForEntitlements(AGENT_TOOLS, entitlements);
 
         for (let round = 0; round < 5; round++) {
           const isFirstRound = round === 0;
@@ -550,7 +561,7 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
               agent.llmModel,
               openrouterKey,
               streamTokens,
-              AGENT_TOOLS,
+              availableTools,
             );
           } catch (err) {
             if (!isFirstRound || tokens.length > 0 || !isToolCompatibilityError(err)) {
@@ -609,6 +620,20 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
               tenantId: session.agent.tenantId,
               bookingContext: parseBookingContext(bookingContext),
               visitorText: text,
+            }).catch((err: unknown): ToolResult => {
+              if (!isApiError(err)) throw err;
+              return {
+                result: JSON.stringify({
+                  success: false,
+                  error: {
+                    code: err.code,
+                    message: err.message,
+                    details: err.details,
+                  },
+                  instruction:
+                    'Tell the visitor this action is not available for the current workspace plan and offer an available alternative.',
+                }),
+              };
             });
 
             if (toolResult.sideEffect === 'handoff_requested') {
@@ -724,7 +749,13 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
         where: { id: sessionId },
         include: {
           agent: {
-            select: { id: true, publicKey: true, isActive: true, sttProvider: true },
+            select: {
+              id: true,
+              tenantId: true,
+              publicKey: true,
+              isActive: true,
+              sttProvider: true,
+            },
           },
         },
       });
@@ -738,6 +769,8 @@ const publicSessionRoutes: FastifyPluginAsync = async (fastify) => {
       if (session.closedAt || session.expiresAt < new Date()) {
         return reply.status(410).send({ error: 'Session expired or closed' });
       }
+
+      await assertFeature({ tenantId: session.agent.tenantId }, 'voice.stt');
 
       const data = await req.file({ limits: { fileSize: STT_MAX_BYTES } });
       if (!data) {

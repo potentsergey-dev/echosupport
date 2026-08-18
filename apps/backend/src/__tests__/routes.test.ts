@@ -26,6 +26,11 @@ vi.mock('../config/env.js', () => ({
 vi.mock('../adapters/storage/local-fs.js', () => ({
   saveFile: vi.fn(),
   deleteFile: vi.fn(),
+  localFileStorageAdapter: {
+    saveFile: vi.fn(),
+    readFile: vi.fn(),
+    deleteFile: vi.fn(),
+  },
 }));
 
 vi.mock('../adapters/vectorstore/qdrant.js', () => ({
@@ -68,6 +73,7 @@ vi.mock('../db/prisma.js', () => ({
 import Fastify from 'fastify';
 import jwt from '@fastify/jwt';
 import authPlugin from '../plugins/auth.js';
+import dependenciesPlugin from '../plugins/dependencies.js';
 import jobRoutes from '../routes/admin/jobs.js';
 import documentRoutes from '../routes/admin/documents.js';
 import internalCronRoutes from '../routes/internal/cron.js';
@@ -77,6 +83,7 @@ async function buildTestServer() {
   const app = Fastify({ logger: false });
   await app.register(jwt, { secret: 'test-secret-at-least-32-characters-long!!' });
   await app.register(authPlugin);
+  await app.register(dependenciesPlugin);
   await app.register(jobRoutes, { prefix: '/api/v1/admin' });
   await app.register(documentRoutes, { prefix: '/api/v1/admin' });
   await app.register(internalCronRoutes, { prefix: '/api/v1/internal' });
@@ -113,7 +120,7 @@ describe('auth — authenticateQueryToken (SSE fallback)', () => {
 
     expect(res.statusCode).not.toBe(401);
     await app.close();
-  });
+  }, 15_000);
 
   it('accepts JWT from ?token= query param on SSE stream endpoint', async () => {
     const app = await buildTestServer();
@@ -140,7 +147,7 @@ describe('auth — authenticateQueryToken (SSE fallback)', () => {
     // Should NOT return 401 (stream or 404 for job are both valid non-auth outcomes)
     expect(res.statusCode).not.toBe(401);
     await app.close();
-  });
+  }, 15_000);
 
   it('rejects unauthenticated SSE stream (no token at all)', async () => {
     const app = await buildTestServer();

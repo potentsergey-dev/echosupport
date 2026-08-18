@@ -40,7 +40,7 @@ import { EmbedPage } from './EmbedPage';
 import { ConfigCheckPage } from './ConfigCheckPage';
 import { SessionsPage } from './SessionsPage';
 import { ProactiveMessageFields } from '../components/ProactiveMessageFields';
-import { isLiteEdition } from '../lib/app-edition';
+import { useFeature } from '../lib/bootstrap';
 
 // ── Tab definitions ──────────────────────────────────────────────────────────
 
@@ -64,8 +64,6 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode; lite?: boolean }[] 
   { id: 'business-hours', label: 'Часы работы', icon: <ClockIcon size={16} /> },
   { id: 'anti-abuse', label: 'Лимиты', icon: <ShieldIcon size={16} /> },
 ];
-
-const VISIBLE_TABS = isLiteEdition ? TABS.filter((tab) => tab.lite) : TABS;
 
 // ── TagsInput ─────────────────────────────────────────────────────────────────
 
@@ -119,6 +117,7 @@ function TagsInput({ value, onChange }: { value: string[]; onChange: (tags: stri
 // ── Profile Block ─────────────────────────────────────────────────────────────
 
 function ProfileBlock({ agent }: { agent: Agent }) {
+  const canUseVoiceStt = useFeature('voice.stt');
   const qc = useQueryClient();
   const { addToast } = useToastContext();
   const [form, setForm] = useState({
@@ -334,7 +333,7 @@ function ProfileBlock({ agent }: { agent: Agent }) {
               className="mt-1"
             />
           </div>
-          {!isLiteEdition && (
+          {canUseVoiceStt && (
             <div>
               <Label htmlFor="stt-provider">STT провайдер</Label>
               <select
@@ -380,6 +379,7 @@ function ProfileBlock({ agent }: { agent: Agent }) {
 // ── Secrets Block ─────────────────────────────────────────────────────────────
 
 function SecretsBlock({ agentId }: { agentId: string }) {
+  const canUseVoiceStt = useFeature('voice.stt');
   const qc = useQueryClient();
   const { addToast } = useToastContext();
   const [fields, setFields] = useState({
@@ -472,9 +472,9 @@ function SecretsBlock({ agentId }: { agentId: string }) {
     { key: 'deepgramKey', label: 'Deepgram API Key', placeholder: 'dg_...' },
   ];
 
-  const visibleSecretFields = isLiteEdition
-    ? secretFields.filter((field) => field.lite)
-    : secretFields;
+  const visibleSecretFields = canUseVoiceStt
+    ? secretFields
+    : secretFields.filter((field) => field.lite);
   const visibleSecretKeys = new Set(visibleSecretFields.map((field) => field.key));
   const hasAnyKey = Object.entries(fields).some(
     ([key, value]) => visibleSecretKeys.has(key as keyof typeof fields) && value.trim() !== '',
@@ -485,7 +485,7 @@ function SecretsBlock({ agentId }: { agentId: string }) {
       <h3 className="mb-1 text-base font-semibold text-gray-900">API-ключи</h3>
       <p className="mb-5 text-sm text-gray-500">
         Ключи шифруются перед сохранением. Оставьте поле пустым, чтобы не менять текущий ключ.{' '}
-        {isLiteEdition
+        {!canUseVoiceStt
           ? 'В Lite-режиме обычно достаточно ключа для чата и ключа для embeddings. Это может быть OpenRouter или OpenAI-compatible endpoint.'
           : 'Для первого AI-ответа нужен ключ для чата или глобальный compatible ключ в .env.'}
       </p>
@@ -745,7 +745,8 @@ function QuickStartPanel({ agent, onOpenTab }: { agent: Agent; onOpenTab: (tab: 
 export function AgentSettingsPage() {
   const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState<Tab>('profile');
-  const visibleTabs = VISIBLE_TABS;
+  const canUseOperatorInbox = useFeature('operator.inbox');
+  const visibleTabs = canUseOperatorInbox ? TABS : TABS.filter((tab) => tab.lite);
 
   useEffect(() => {
     if (!visibleTabs.some((tab) => tab.id === activeTab)) {
@@ -830,11 +831,11 @@ export function AgentSettingsPage() {
             {activeTab === 'knowledge' && <KnowledgePage agentId={agent.id} />}
             {activeTab === 'embed' && <EmbedPage agentId={agent.id} />}
             {activeTab === 'config-check' && <ConfigCheckPage agentId={agent.id} />}
-            {!isLiteEdition && activeTab === 'sessions' && <SessionsPage agentId={agent.id} />}
-            {!isLiteEdition && activeTab === 'business-hours' && (
+            {canUseOperatorInbox && activeTab === 'sessions' && <SessionsPage agentId={agent.id} />}
+            {canUseOperatorInbox && activeTab === 'business-hours' && (
               <BusinessHoursBlock agentId={agent.id} />
             )}
-            {!isLiteEdition && activeTab === 'anti-abuse' && <AntiAbuseBlock agent={agent} />}
+            {canUseOperatorInbox && activeTab === 'anti-abuse' && <AntiAbuseBlock agent={agent} />}
           </>
         )}
       </div>
