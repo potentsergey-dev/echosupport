@@ -45,7 +45,7 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
 
       const user = await prisma.user.findUnique({ where: { email } });
       // Use constant-time comparison path even when user not found to avoid timing attacks
-      if (!user) {
+      if (!user || !user.passwordHash || !user.tenantId) {
         await compare('dummy', '$2b$12$invalidhashpaddingtomatch.invalid.hash.length.here.xxx');
         return reply.status(401).send({ error: 'Invalid credentials' });
       }

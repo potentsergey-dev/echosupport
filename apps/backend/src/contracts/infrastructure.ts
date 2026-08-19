@@ -55,6 +55,7 @@ export interface WorkspaceAuthContext {
   userId: string;
   email: string;
   tenantId: string;
+  membershipId?: string;
   role: 'OWNER' | 'ADMIN' | 'OPERATOR';
 }
 

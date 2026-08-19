@@ -29,6 +29,16 @@ export interface SubscriptionRepository {
   getTenantSubscription(tenantId: string): Promise<TenantSubscriptionRecord>;
 }
 
+export interface TenantPlanAssignmentRecord {
+  tenantId: string;
+  plan: PlanName;
+}
+
+export type TenantPlanAssignmentReader = (
+  tenantId: string,
+  at: Date,
+) => Promise<TenantPlanAssignmentRecord | null>;
+
 function entitlementEnv() {
   return {
     appEdition: process.env['APP_EDITION'] ?? 'pro',
@@ -84,6 +94,32 @@ export class FailClosedSubscriptionRepository implements SubscriptionRepository 
       subscriptionState: 'INACTIVE',
       access: 'DENIED',
       accessReason: 'subscription_repository_not_configured',
+      trialState: 'NONE',
+    };
+  }
+}
+
+export class TenantPlanAssignmentSubscriptionRepository implements SubscriptionRepository {
+  constructor(private readonly readCurrentPlanAssignment: TenantPlanAssignmentReader) {}
+
+  async getTenantSubscription(tenantId: string): Promise<TenantSubscriptionRecord> {
+    const assignment = await this.readCurrentPlanAssignment(tenantId, new Date());
+    if (!assignment) {
+      return {
+        tenantId,
+        plan: 'Lite',
+        subscriptionState: 'INACTIVE',
+        access: 'DENIED',
+        accessReason: 'plan_assignment_not_found',
+        trialState: 'NONE',
+      };
+    }
+
+    return {
+      tenantId,
+      plan: assignment.plan,
+      subscriptionState: 'ACTIVE',
+      access: 'ALLOWED',
       trialState: 'NONE',
     };
   }

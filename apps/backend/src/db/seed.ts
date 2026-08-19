@@ -2,6 +2,10 @@ import { prisma } from './prisma.js';
 import { hash } from 'bcryptjs';
 import { randomBytes } from 'node:crypto';
 
+function normalizeEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
 async function main() {
   console.log('🌱 Seeding database...');
   const adminEmail = process.env['ADMIN_EMAIL'];
@@ -24,16 +28,42 @@ async function main() {
     where: { email: adminEmail },
     // ADMIN_PASSWORD is the source of truth for the initial owner. Updating the
     // environment and restarting the container intentionally rotates the password.
-    update: { passwordHash },
+    update: { passwordHash, normalizedEmail: normalizeEmail(adminEmail) },
     create: {
       tenantId: tenant.id,
       email: adminEmail,
+      normalizedEmail: normalizeEmail(adminEmail),
+      emailVerified: true,
       passwordHash,
       role: 'OWNER',
     },
   });
 
   console.log(`✅ User: ${user.email}`);
+  await prisma.membership.upsert({
+    where: { userId_tenantId: { userId: user.id, tenantId: tenant.id } },
+    update: { role: 'OWNER', status: 'ACTIVE' },
+    create: { userId: user.id, tenantId: tenant.id, role: 'OWNER', status: 'ACTIVE' },
+  });
+  const activePlan = await prisma.tenantPlanAssignment.findFirst({
+    where: { tenantId: tenant.id, endsAt: null },
+    select: { id: true },
+  });
+  if (!activePlan) {
+    await prisma.tenantPlanAssignment.create({
+      data: {
+        tenantId: tenant.id,
+        startsAt: new Date(0),
+        plan: 'Lite',
+        source: 'COMPATIBILITY_BACKFILL',
+      },
+    });
+  }
+  await prisma.workspaceOnboardingState.upsert({
+    where: { workspaceId: tenant.id },
+    update: {},
+    create: { workspaceId: tenant.id },
+  });
 
   const initialOperatorEmail = process.env['INITIAL_OPERATOR_EMAIL']?.trim();
   const initialOperatorPassword = process.env['INITIAL_OPERATOR_PASSWORD'];
@@ -66,16 +96,26 @@ async function main() {
     const operator = existingOperator
       ? await prisma.user.update({
           where: { id: existingOperator.id },
-          data: { passwordHash: operatorPasswordHash },
+          data: {
+            passwordHash: operatorPasswordHash,
+            normalizedEmail: normalizeEmail(initialOperatorEmail),
+          },
         })
       : await prisma.user.create({
           data: {
             tenantId: tenant.id,
             email: initialOperatorEmail,
+            normalizedEmail: normalizeEmail(initialOperatorEmail),
+            emailVerified: true,
             passwordHash: operatorPasswordHash,
             role: 'OPERATOR',
           },
         });
+    await prisma.membership.upsert({
+      where: { userId_tenantId: { userId: operator.id, tenantId: tenant.id } },
+      update: { role: 'OPERATOR', status: 'ACTIVE' },
+      create: { userId: operator.id, tenantId: tenant.id, role: 'OPERATOR', status: 'ACTIVE' },
+    });
     console.log(`✅ Initial operator: ${operator.email}`);
   }
 
