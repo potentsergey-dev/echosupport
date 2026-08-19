@@ -4,6 +4,7 @@ import {
   constantTimeEqual,
   createCsrfToken,
   createOpaqueToken,
+  createRotatedSessionToken,
   hashOpaqueToken,
   normalizeEmail,
   resolveCurrentPlan,
@@ -28,6 +29,16 @@ describe('Phase 2 identity foundation', () => {
     expect(hashOpaqueToken(token)).toBe(hashOpaqueToken(token));
     expect(hashOpaqueToken(token)).not.toBe(token);
     expect(hashOpaqueToken(token)).not.toBe(hashOpaqueToken(otherToken));
+  });
+
+  it('rotates session identifiers by issuing a new opaque token hash pair', () => {
+    const first = createRotatedSessionToken();
+    const second = createRotatedSessionToken();
+
+    expect(first.token).not.toBe(second.token);
+    expect(first.tokenHash).toBe(hashOpaqueToken(first.token));
+    expect(second.tokenHash).toBe(hashOpaqueToken(second.token));
+    expect(first.tokenHash).not.toBe(second.tokenHash);
   });
 
   it('rejects weak opaque token sizes', () => {
@@ -125,6 +136,26 @@ describe('Phase 2 identity foundation', () => {
     ).toThrow('Workspace access denied');
   });
 
+  it('uses the selected workspace membership role for workspace context', () => {
+    const ownerContext = resolveWorkspaceSessionContext('user-1', 'tenant-a', {
+      id: 'membership-owner',
+      userId: 'user-1',
+      tenantId: 'tenant-a',
+      role: 'OWNER',
+      status: 'ACTIVE',
+    });
+    const operatorContext = resolveWorkspaceSessionContext('user-1', 'tenant-b', {
+      id: 'membership-operator',
+      userId: 'user-1',
+      tenantId: 'tenant-b',
+      role: 'OPERATOR',
+      status: 'ACTIVE',
+    });
+
+    expect(ownerContext).toMatchObject({ tenantId: 'tenant-a', role: 'OWNER' });
+    expect(operatorContext).toMatchObject({ tenantId: 'tenant-b', role: 'OPERATOR' });
+  });
+
   it('protects the last active owner from demotion, suspension or removal', () => {
     expect(() =>
       assertMembershipChangeAllowed({
@@ -180,12 +211,12 @@ describe('Phase 2 identity foundation', () => {
     expect(
       sanitizeAuditMetadata({
         action: 'login',
-        token: 'raw-token',
+        Token: 'raw-token',
         nested: {
-          csrfSecret: 'secret',
+          CsrfSecret: 'secret',
           safe: 'kept',
         },
-        list: [{ password: 'secret' }, { targetId: 'agent-1' }],
+        list: [{ PasswordHash: 'secret' }, { targetId: 'agent-1' }],
       }),
     ).toEqual({
       action: 'login',

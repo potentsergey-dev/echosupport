@@ -23,6 +23,8 @@ ALTER TABLE "User" ADD COLUMN "status" "UserStatus" NOT NULL DEFAULT 'ACTIVE';
 ALTER TABLE "User" ADD COLUMN "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP;
 ALTER TABLE "User" ALTER COLUMN "tenantId" DROP NOT NULL;
 ALTER TABLE "User" ALTER COLUMN "passwordHash" DROP NOT NULL;
+ALTER TABLE "User" DROP CONSTRAINT "User_tenantId_fkey";
+ALTER TABLE "User" ADD CONSTRAINT "User_tenantId_fkey" FOREIGN KEY ("tenantId") REFERENCES "Tenant"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AlterTable
 ALTER TABLE "Agent" ADD COLUMN "lifecycleStatus" "AgentLifecycleStatus" NOT NULL DEFAULT 'ACTIVE';
@@ -31,6 +33,20 @@ ALTER TABLE "Agent" ADD COLUMN "lifecycleStatus" "AgentLifecycleStatus" NOT NULL
 UPDATE "User"
 SET "normalizedEmail" = lower(trim("email"))
 WHERE "normalizedEmail" IS NULL;
+
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM "User"
+    GROUP BY "normalizedEmail"
+    HAVING count(*) > 1
+  ) THEN
+    RAISE EXCEPTION 'Cannot add unique normalizedEmail: duplicate normalized user emails exist';
+  END IF;
+END $$;
+
+ALTER TABLE "User" ALTER COLUMN "normalizedEmail" SET NOT NULL;
 
 UPDATE "Agent"
 SET "lifecycleStatus" = CASE WHEN "isActive" THEN 'ACTIVE'::"AgentLifecycleStatus" ELSE 'ARCHIVED'::"AgentLifecycleStatus" END;
@@ -178,7 +194,7 @@ ON CONFLICT DO NOTHING;
 
 -- CreateIndex
 CREATE INDEX "User_tenantId_idx" ON "User"("tenantId");
-CREATE INDEX "User_normalizedEmail_idx" ON "User"("normalizedEmail");
+CREATE UNIQUE INDEX "User_normalizedEmail_key" ON "User"("normalizedEmail");
 CREATE UNIQUE INDEX "ExternalIdentity_provider_subject_key" ON "ExternalIdentity"("provider", "subject");
 CREATE INDEX "ExternalIdentity_userId_idx" ON "ExternalIdentity"("userId");
 CREATE INDEX "ExternalIdentity_email_idx" ON "ExternalIdentity"("email");

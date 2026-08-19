@@ -1,9 +1,17 @@
 import { afterAll, beforeEach, describe, expect, it } from 'vitest';
 import { hashOpaqueToken, normalizeEmail } from '../services/identity-foundation.js';
+import { changeMembershipRoleStatus } from '../services/membership-operations.js';
 import { prisma } from '../db/prisma.js';
 
 async function cleanIdentityFixture() {
   await prisma.auditLog.deleteMany();
+  await prisma.workspaceInvitation.deleteMany();
+  await prisma.authSession.deleteMany();
+  await prisma.membership.deleteMany();
+  await prisma.externalIdentity.deleteMany();
+  await prisma.tenantPlanAssignment.deleteMany();
+  await prisma.workspaceOnboardingState.deleteMany();
+  await prisma.user.deleteMany();
   await prisma.tenant.deleteMany();
 }
 
@@ -48,6 +56,70 @@ describe('Phase 2 identity foundation (PostgreSQL)', () => {
     expect(memberships).toHaveLength(2);
     expect(memberships.map((membership) => membership.role).sort()).toEqual(['ADMIN', 'OWNER']);
     expect(user.tenantId).toBe(tenantA.id);
+  });
+
+  it('keeps a global user and other memberships when the legacy home tenant is deleted', async () => {
+    const [homeTenant, otherTenant] = await Promise.all([
+      prisma.tenant.create({ data: { name: 'Legacy Home' } }),
+      prisma.tenant.create({ data: { name: 'Other Workspace' } }),
+    ]);
+    const user = await prisma.user.create({
+      data: {
+        tenantId: homeTenant.id,
+        email: 'multi@example.com',
+        normalizedEmail: normalizeEmail('multi@example.com'),
+        emailVerified: true,
+        passwordHash: 'legacy-password-hash',
+        role: 'OWNER',
+      },
+    });
+    await prisma.membership.createMany({
+      data: [
+        { userId: user.id, tenantId: homeTenant.id, role: 'OWNER', status: 'ACTIVE' },
+        { userId: user.id, tenantId: otherTenant.id, role: 'ADMIN', status: 'ACTIVE' },
+      ],
+    });
+
+    await prisma.tenant.delete({ where: { id: homeTenant.id } });
+
+    await expect(prisma.user.findUnique({ where: { id: user.id } })).resolves.toMatchObject({
+      tenantId: null,
+    });
+    await expect(
+      prisma.membership.findUnique({
+        where: { userId_tenantId: { userId: user.id, tenantId: otherTenant.id } },
+      }),
+    ).resolves.toMatchObject({ role: 'ADMIN', status: 'ACTIVE' });
+    await expect(
+      prisma.membership.findUnique({
+        where: { userId_tenantId: { userId: user.id, tenantId: homeTenant.id } },
+      }),
+    ).resolves.toBeNull();
+  });
+
+  it('enforces normalizedEmail uniqueness across case and surrounding spaces', async () => {
+    const tenant = await prisma.tenant.create({ data: { name: 'Email Workspace' } });
+    await prisma.user.create({
+      data: {
+        tenantId: tenant.id,
+        email: 'Owner@Example.com',
+        normalizedEmail: normalizeEmail(' Owner@Example.com '),
+        emailVerified: true,
+        role: 'OWNER',
+      },
+    });
+
+    await expect(
+      prisma.user.create({
+        data: {
+          tenantId: tenant.id,
+          email: ' owner@example.COM ',
+          normalizedEmail: normalizeEmail(' owner@example.COM '),
+          emailVerified: true,
+          role: 'ADMIN',
+        },
+      }),
+    ).rejects.toThrow();
   });
 
   it('keeps external identities provider-neutral and unique by provider subject', async () => {
@@ -180,18 +252,57 @@ describe('Phase 2 identity foundation (PostgreSQL)', () => {
       },
     });
 
-    await prisma.$transaction(async (tx) => {
-      await tx.membership.update({
-        where: { id: membership.id },
-        data: { status: 'REMOVED' },
-      });
-      await tx.authSession.updateMany({
-        where: { selectedMembershipId: membership.id, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
+    await changeMembershipRoleStatus(prisma, {
+      membershipId: membership.id,
+      nextStatus: 'REMOVED',
     });
 
     const revokedSession = await prisma.authSession.findUnique({ where: { id: authSession.id } });
     expect(revokedSession?.revokedAt).toBeInstanceOf(Date);
+  });
+
+  it('protects the last active OWNER under concurrent membership changes', async () => {
+    const tenant = await prisma.tenant.create({ data: { name: 'Owner Race Workspace' } });
+    const [firstUser, secondUser] = await Promise.all([
+      prisma.user.create({
+        data: {
+          tenantId: tenant.id,
+          email: 'owner-race-a@example.com',
+          normalizedEmail: normalizeEmail('owner-race-a@example.com'),
+          emailVerified: true,
+          role: 'OWNER',
+        },
+      }),
+      prisma.user.create({
+        data: {
+          tenantId: tenant.id,
+          email: 'owner-race-b@example.com',
+          normalizedEmail: normalizeEmail('owner-race-b@example.com'),
+          emailVerified: true,
+          role: 'OWNER',
+        },
+      }),
+    ]);
+    const [firstMembership, secondMembership] = await Promise.all([
+      prisma.membership.create({
+        data: { userId: firstUser.id, tenantId: tenant.id, role: 'OWNER', status: 'ACTIVE' },
+      }),
+      prisma.membership.create({
+        data: { userId: secondUser.id, tenantId: tenant.id, role: 'OWNER', status: 'ACTIVE' },
+      }),
+    ]);
+
+    const results = await Promise.allSettled([
+      changeMembershipRoleStatus(prisma, { membershipId: firstMembership.id, nextRole: 'ADMIN' }),
+      changeMembershipRoleStatus(prisma, { membershipId: secondMembership.id, nextRole: 'ADMIN' }),
+    ]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    await expect(
+      prisma.membership.count({
+        where: { tenantId: tenant.id, role: 'OWNER', status: 'ACTIVE' },
+      }),
+    ).resolves.toBe(1);
   });
 });

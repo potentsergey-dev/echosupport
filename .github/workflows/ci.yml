@@ -58,7 +58,16 @@ jobs:
       - name: Verify integration database safety
         run: pnpm --filter @echosupport/backend test:integration:check-db
 
-      - name: Apply test database migrations
+      - name: Test Phase 2 legacy upgrade migration
+        run: |
+          mv apps/backend/prisma/migrations/20260819090000_phase_2_identity_workspace_foundation /tmp/phase2_identity_workspace_foundation
+          pnpm --filter @echosupport/backend db:migrate:deploy
+          pnpm --filter @echosupport/backend exec prisma db execute --file prisma/fixtures/phase2-legacy-upgrade.sql --schema prisma/schema.prisma
+          mv /tmp/phase2_identity_workspace_foundation apps/backend/prisma/migrations/20260819090000_phase_2_identity_workspace_foundation
+          pnpm --filter @echosupport/backend db:migrate:deploy
+          pnpm --filter @echosupport/backend exec tsx src/db/assert-phase2-upgrade.ts
+
+      - name: Re-run test database migrations
         run: pnpm --filter @echosupport/backend db:migrate:deploy
 
       - name: Check release consistency

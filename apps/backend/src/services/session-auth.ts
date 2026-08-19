@@ -7,6 +7,7 @@ import { hashOpaqueToken, resolveWorkspaceSessionContext } from './identity-foun
 export interface SessionAuthAdapterOptions {
   cookieName: string;
   idleTtlMs?: number;
+  lastSeenAtThrottleMs?: number;
   now?: () => Date;
 }
 
@@ -92,10 +93,15 @@ export class PrismaSessionAuthWorkspaceAdapter implements AuthWorkspaceAdapter {
       session.selectedMembership,
     );
 
-    await this.prisma.authSession.update({
-      where: { id: session.id },
-      data: { lastSeenAt: now },
-    });
+    const shouldTouchLastSeen =
+      !this.options.lastSeenAtThrottleMs ||
+      session.lastSeenAt.getTime() + this.options.lastSeenAtThrottleMs <= now.getTime();
+    if (shouldTouchLastSeen) {
+      await this.prisma.authSession.update({
+        where: { id: session.id },
+        data: { lastSeenAt: now },
+      });
+    }
 
     return {
       ...context,

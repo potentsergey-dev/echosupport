@@ -6,18 +6,18 @@ const SENSITIVE_METADATA_KEYS = new Set([
   'authorization',
   'cookie',
   'csrf',
-  'csrfToken',
-  'csrfSecret',
-  'idToken',
+  'csrftoken',
+  'csrfsecret',
+  'idtoken',
   'token',
   'session',
-  'sessionCookie',
-  'sessionToken',
+  'sessioncookie',
+  'sessiontoken',
   'password',
-  'passwordHash',
-  'resetToken',
-  'invitationToken',
-  'providerSecret',
+  'passwordhash',
+  'resettoken',
+  'invitationtoken',
+  'providersecret',
 ]);
 
 export type MembershipRole = Extract<UserRole, 'OWNER' | 'ADMIN' | 'OPERATOR'>;
@@ -69,6 +69,11 @@ export function hashOpaqueToken(token: string): string {
   return createHash('sha256').update(token, 'utf8').digest('base64url');
 }
 
+export function createRotatedSessionToken(): { token: string; tokenHash: string } {
+  const token = createOpaqueToken();
+  return { token, tokenHash: hashOpaqueToken(token) };
+}
+
 export function constantTimeEqual(a: string, b: string): boolean {
   const left = Buffer.from(a);
   const right = Buffer.from(b);
@@ -116,7 +121,7 @@ export function sanitizeAuditMetadata(
   if (!metadata) return undefined;
   return Object.fromEntries(
     Object.entries(metadata)
-      .filter(([key]) => !SENSITIVE_METADATA_KEYS.has(key))
+      .filter(([key]) => !SENSITIVE_METADATA_KEYS.has(key.toLowerCase()))
       .map(([key, value]) => [key, sanitizeAuditValue(value)]),
   );
 }
@@ -152,8 +157,8 @@ export function assertMembershipChangeAllowed(options: {
   activeOwnerCount: number;
   currentRole: MembershipRole;
   currentStatus: MembershipStatus;
-  nextRole?: MembershipRole;
-  nextStatus?: MembershipStatus;
+  nextRole?: MembershipRole | undefined;
+  nextStatus?: MembershipStatus | undefined;
 }): void {
   const nextRole = options.nextRole ?? options.currentRole;
   const nextStatus = options.nextStatus ?? options.currentStatus;

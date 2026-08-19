@@ -176,6 +176,45 @@ describe('PrismaSessionAuthWorkspaceAdapter', () => {
     });
   });
 
+  it('throttles lastSeenAt updates for hot authenticated sessions', async () => {
+    const now = new Date('2026-08-19T12:00:00.000Z');
+    const update = vi.fn().mockResolvedValue({});
+    const adapter = new PrismaSessionAuthWorkspaceAdapter(
+      {
+        authSession: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: 'hot-session',
+            userId: 'user-1',
+            tenantId: 'tenant-1',
+            expiresAt: new Date('2026-08-20T00:00:00.000Z'),
+            revokedAt: null,
+            lastSeenAt: new Date('2026-08-19T11:59:30.000Z'),
+            user: { id: 'user-1', email: 'owner@example.com', status: 'ACTIVE' },
+            selectedMembership: {
+              id: 'membership-1',
+              userId: 'user-1',
+              tenantId: 'tenant-1',
+              role: 'OWNER',
+              status: 'ACTIVE',
+            },
+          }),
+          update,
+        },
+        membership: { findUnique: vi.fn() },
+      } as never,
+      {
+        cookieName: 'echosupport_session',
+        lastSeenAtThrottleMs: 60_000,
+        now: () => now,
+      },
+    );
+
+    await expect(
+      adapter.authenticateRequest(requestWithCookie('echosupport_session=raw-session-token')),
+    ).resolves.toMatchObject({ userId: 'user-1', tenantId: 'tenant-1' });
+    expect(update).not.toHaveBeenCalled();
+  });
+
   it('checks workspace access against active membership instead of trusting input tenant IDs', async () => {
     const findUnique = vi
       .fn()

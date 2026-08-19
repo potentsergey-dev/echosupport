@@ -24,20 +24,28 @@ async function main() {
 
   const passwordHash = await hash(adminPassword, 12);
 
-  const user = await prisma.user.upsert({
-    where: { email: adminEmail },
-    // ADMIN_PASSWORD is the source of truth for the initial owner. Updating the
-    // environment and restarting the container intentionally rotates the password.
-    update: { passwordHash, normalizedEmail: normalizeEmail(adminEmail) },
-    create: {
-      tenantId: tenant.id,
-      email: adminEmail,
-      normalizedEmail: normalizeEmail(adminEmail),
-      emailVerified: true,
-      passwordHash,
-      role: 'OWNER',
-    },
+  const trimmedAdminEmail = adminEmail.trim();
+  const normalizedAdminEmail = normalizeEmail(adminEmail);
+  const existingAdmin = await prisma.user.findUnique({
+    where: { normalizedEmail: normalizedAdminEmail },
   });
+  // ADMIN_PASSWORD is the source of truth for the initial owner. Updating the
+  // environment and restarting the container intentionally rotates the password.
+  const user = existingAdmin
+    ? await prisma.user.update({
+        where: { id: existingAdmin.id },
+        data: { email: trimmedAdminEmail, passwordHash, normalizedEmail: normalizedAdminEmail },
+      })
+    : await prisma.user.create({
+        data: {
+          tenantId: tenant.id,
+          email: trimmedAdminEmail,
+          normalizedEmail: normalizedAdminEmail,
+          emailVerified: true,
+          passwordHash,
+          role: 'OWNER',
+        },
+      });
 
   console.log(`✅ User: ${user.email}`);
   await prisma.membership.upsert({
@@ -83,8 +91,10 @@ async function main() {
     if (initialOperatorPassword === 'replace-with-a-long-unique-operator-password') {
       throw new Error('INITIAL_OPERATOR_PASSWORD must be replaced with a unique value');
     }
+    const trimmedOperatorEmail = initialOperatorEmail.trim();
+    const normalizedOperatorEmail = normalizeEmail(initialOperatorEmail);
     const existingOperator = await prisma.user.findUnique({
-      where: { email: initialOperatorEmail },
+      where: { normalizedEmail: normalizedOperatorEmail },
     });
     if (
       existingOperator &&
@@ -98,14 +108,15 @@ async function main() {
           where: { id: existingOperator.id },
           data: {
             passwordHash: operatorPasswordHash,
-            normalizedEmail: normalizeEmail(initialOperatorEmail),
+            email: trimmedOperatorEmail,
+            normalizedEmail: normalizedOperatorEmail,
           },
         })
       : await prisma.user.create({
           data: {
             tenantId: tenant.id,
-            email: initialOperatorEmail,
-            normalizedEmail: normalizeEmail(initialOperatorEmail),
+            email: trimmedOperatorEmail,
+            normalizedEmail: normalizedOperatorEmail,
             emailVerified: true,
             passwordHash: operatorPasswordHash,
             role: 'OPERATOR',
