@@ -2,9 +2,10 @@ import type { FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { compare } from 'bcryptjs';
 import { prisma } from '../../db/prisma.js';
+import { normalizeEmail } from '../../services/identity-foundation.js';
 
 const LoginBodySchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().email(),
   password: z.string().min(1),
 });
 
@@ -43,9 +44,11 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
       }
       const { email, password } = result.data;
 
-      const user = await prisma.user.findUnique({ where: { email } });
+      const user = await prisma.user.findUnique({
+        where: { normalizedEmail: normalizeEmail(email) },
+      });
       // Use constant-time comparison path even when user not found to avoid timing attacks
-      if (!user) {
+      if (!user || !user.passwordHash || !user.tenantId) {
         await compare('dummy', '$2b$12$invalidhashpaddingtomatch.invalid.hash.length.here.xxx');
         return reply.status(401).send({ error: 'Invalid credentials' });
       }

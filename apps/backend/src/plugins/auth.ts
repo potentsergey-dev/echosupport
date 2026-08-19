@@ -1,12 +1,13 @@
 import fp from 'fastify-plugin';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
+import type { WorkspaceAuthContext } from '../contracts/infrastructure.js';
 
 // ── Module augmentations ────────────────────────────────────────────────────
 
 declare module '@fastify/jwt' {
   interface FastifyJWT {
-    payload: { sub: string; email: string; tenantId: string; role: string };
-    user: { sub: string; email: string; tenantId: string; role: string };
+    payload: { sub: string; email: string; tenantId: string; membershipId?: string; role: string };
+    user: { sub: string; email: string; tenantId: string; membershipId?: string; role: string };
   }
 }
 
@@ -24,18 +25,23 @@ declare module 'fastify' {
 
 // ── Plugin ──────────────────────────────────────────────────────────────────
 
+function toFastifyUser(context: WorkspaceAuthContext) {
+  return {
+    sub: context.userId,
+    email: context.email,
+    tenantId: context.tenantId,
+    ...(context.membershipId ? { membershipId: context.membershipId } : {}),
+    role: context.role,
+  };
+}
+
 const authPlugin: FastifyPluginAsync = async (fastify) => {
   fastify.decorate(
     'authenticate',
     async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
       try {
         const context = await fastify.deps.authWorkspace.authenticateRequest(request);
-        request.user = {
-          sub: context.userId,
-          email: context.email,
-          tenantId: context.tenantId,
-          role: context.role,
-        };
+        request.user = toFastifyUser(context);
       } catch {
         return reply.status(401).send({ error: 'Unauthorized' });
       }
@@ -54,12 +60,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
       }
       try {
         const context = await fastify.deps.authWorkspace.authenticateRequest(request);
-        request.user = {
-          sub: context.userId,
-          email: context.email,
-          tenantId: context.tenantId,
-          role: context.role,
-        };
+        request.user = toFastifyUser(context);
       } catch {
         return reply.status(401).send({ error: 'Unauthorized' });
       }
@@ -70,12 +71,7 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
     return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
       try {
         const context = await fastify.deps.authWorkspace.authenticateRequest(request);
-        request.user = {
-          sub: context.userId,
-          email: context.email,
-          tenantId: context.tenantId,
-          role: context.role,
-        };
+        request.user = toFastifyUser(context);
       } catch {
         return reply.status(401).send({ error: 'Unauthorized' });
       }

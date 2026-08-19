@@ -7,6 +7,7 @@ import {
   DevTenantPlansSubscriptionRepository,
   parseTenantPlans,
   setEntitlementProviderForTests,
+  TenantPlanAssignmentSubscriptionRepository,
   type SubscriptionRepository,
 } from '../services/entitlements.js';
 
@@ -95,6 +96,29 @@ describe('EntitlementProvider contract', () => {
       state: 'INACTIVE',
       access: 'DENIED',
       reason: 'past_due',
+    });
+  });
+
+  it('reads Cloud plans from durable tenant plan assignments', async () => {
+    const repository = new TenantPlanAssignmentSubscriptionRepository(async (tenantId) =>
+      tenantId === 'tenant-pro' ? { tenantId, plan: 'PRO' } : null,
+    );
+    const provider = new CloudEntitlementProvider(repository);
+
+    const pro = await provider.getSnapshot({ tenantId: 'tenant-pro' });
+    const missing = await provider.getSnapshot({ tenantId: 'tenant-missing' });
+
+    expect(pro.plan).toBe('PRO');
+    expect(pro.subscription).toMatchObject({
+      state: 'ACTIVE',
+      access: 'ALLOWED',
+      trial: { state: 'NONE' },
+    });
+    expect(missing.plan).toBe('Lite');
+    expect(missing.subscription).toMatchObject({
+      state: 'INACTIVE',
+      access: 'DENIED',
+      reason: 'plan_assignment_not_found',
     });
   });
 

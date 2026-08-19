@@ -14,6 +14,7 @@ import adminSessionRoutes from '../routes/admin/sessions.js';
 import operatorRoutes from '../routes/operator/index.js';
 import publicSessionRoutes from '../routes/public/sessions.js';
 import { isAdminOriginAllowed } from '../services/origin-policy.js';
+import { normalizeEmail } from '../services/identity-foundation.js';
 
 const JWT_SECRET = 'integration-jwt-secret-at-least-32-characters';
 const TRUSTED_ORIGIN = 'https://admin.example';
@@ -71,6 +72,7 @@ async function buildTestServer() {
 }
 
 async function seedFixture(): Promise<Fixture> {
+  await prisma.user.deleteMany();
   await prisma.tenant.deleteMany();
 
   const passwordHash = await hash('correct horse battery staple', 4);
@@ -78,15 +80,28 @@ async function seedFixture(): Promise<Fixture> {
   const tenantB = await prisma.tenant.create({ data: { name: 'Tenant B' } });
   const [ownerA, adminA, operatorA] = await Promise.all([
     prisma.user.create({
-      data: { tenantId: tenantA.id, email: 'owner-a@example.com', passwordHash, role: 'OWNER' },
+      data: {
+        tenantId: tenantA.id,
+        email: 'owner-a@example.com',
+        normalizedEmail: normalizeEmail('owner-a@example.com'),
+        passwordHash,
+        role: 'OWNER',
+      },
     }),
     prisma.user.create({
-      data: { tenantId: tenantA.id, email: 'admin-a@example.com', passwordHash, role: 'ADMIN' },
+      data: {
+        tenantId: tenantA.id,
+        email: 'admin-a@example.com',
+        normalizedEmail: normalizeEmail('admin-a@example.com'),
+        passwordHash,
+        role: 'ADMIN',
+      },
     }),
     prisma.user.create({
       data: {
         tenantId: tenantA.id,
         email: 'operator-a@example.com',
+        normalizedEmail: normalizeEmail('operator-a@example.com'),
         passwordHash,
         role: 'OPERATOR',
       },
@@ -202,6 +217,7 @@ describe('authentication and tenant isolation (PostgreSQL)', () => {
   });
 
   afterAll(async () => {
+    await prisma.user.deleteMany();
     await prisma.tenant.deleteMany();
     await prisma.$disconnect();
   });
@@ -239,6 +255,44 @@ describe('authentication and tenant isolation (PostgreSQL)', () => {
     expect(unknownUser.json()).toEqual({ error: 'Invalid credentials' });
     expect(success.body).not.toContain('passwordHash');
     expect(wrongPassword.body).not.toContain('postgresql://');
+    await app.close();
+  });
+
+  it('normalizes login email case and surrounding spaces', async () => {
+    const app = await buildTestServer();
+    const success = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: '  OWNER-A@EXAMPLE.COM  ', password: 'correct horse battery staple' },
+    });
+
+    expect(success.statusCode).toBe(200);
+    expect(success.json<{ user: { id: string; email: string } }>()).toMatchObject({
+      user: { id: fixture.ownerA, email: 'owner-a@example.com' },
+    });
+    await app.close();
+  });
+
+  it('rejects external-only users through legacy Community login generically', async () => {
+    const app = await buildTestServer();
+    await prisma.user.create({
+      data: {
+        email: 'external-only@example.com',
+        normalizedEmail: normalizeEmail('external-only@example.com'),
+        emailVerified: true,
+        role: 'OWNER',
+      },
+    });
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/v1/auth/login',
+      payload: { email: 'external-only@example.com', password: 'any-password' },
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ error: 'Invalid credentials' });
+    expect(response.body).not.toContain('passwordHash');
     await app.close();
   });
 
@@ -332,6 +386,47 @@ describe('authentication and tenant isolation (PostgreSQL)', () => {
     expect(await prisma.agent.findUnique({ where: { id: fixture.agentB } })).toMatchObject({
       name: 'Agent B',
     });
+    await app.close();
+  });
+
+  it('keeps Agent.isActive and lifecycleStatus synchronized', async () => {
+    const app = await buildTestServer();
+    const headers = authorization(token(app, fixture, 'OWNER'));
+    const draft = await app.inject({
+      method: 'POST',
+      url: '/api/v1/admin/agents',
+      headers,
+      payload: {
+        name: 'Draft Agent',
+        systemPrompt: 'Draft instructions.',
+        lifecycleStatus: 'DRAFT',
+      },
+    });
+
+    expect(draft.statusCode).toBe(201);
+    const draftBody = draft.json<{ id: string; isActive: boolean; lifecycleStatus: string }>();
+    expect(draftBody).toMatchObject({ isActive: false, lifecycleStatus: 'DRAFT' });
+    await expect(prisma.agent.findUnique({ where: { id: draftBody.id } })).resolves.toMatchObject({
+      isActive: false,
+      lifecycleStatus: 'DRAFT',
+    });
+
+    const archived = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/agents/${draftBody.id}`,
+      headers,
+      payload: { isActive: false },
+    });
+    expect(archived.statusCode).toBe(200);
+    expect(archived.json()).toMatchObject({ isActive: false, lifecycleStatus: 'ARCHIVED' });
+
+    const invalid = await app.inject({
+      method: 'PATCH',
+      url: `/api/v1/admin/agents/${draftBody.id}`,
+      headers,
+      payload: { isActive: false, lifecycleStatus: 'ACTIVE' },
+    });
+    expect(invalid.statusCode).toBe(400);
     await app.close();
   });
 

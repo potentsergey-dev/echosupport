@@ -32,6 +32,8 @@ const CreateAgentSchema = z.object({
   maxMessageLength: z.number().int().min(100).max(10000).default(2000),
   // Phase 10.6 booking
   bookingEnabled: z.boolean().default(false),
+  isActive: z.boolean().optional(),
+  lifecycleStatus: z.enum(['DRAFT', 'ACTIVE', 'ARCHIVED']).optional(),
 });
 
 const UpdateAgentSchema = CreateAgentSchema.partial();
@@ -122,6 +124,7 @@ const AGENT_SAFE_SELECT = {
   maxSessionsPerDayPerVisitor: true,
   maxMessageLength: true,
   bookingEnabled: true,
+  lifecycleStatus: true,
   createdAt: true,
   updatedAt: true,
 } as const;
@@ -129,6 +132,7 @@ const AGENT_SAFE_SELECT = {
 // ── Route plugin ─────────────────────────────────────────────────────────────
 
 const ADMIN_ROLES = ['OWNER', 'ADMIN'] as const;
+const SERIALIZABLE_RETRY_ATTEMPTS = 3;
 
 async function lockTenantQuota(
   tx: Prisma.TransactionClient,
@@ -138,6 +142,67 @@ async function lockTenantQuota(
   await tx.$executeRaw`
     SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${quota}))
   `;
+}
+
+function isSerializableConflict(error: unknown): boolean {
+  return (
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    (error.code === 'P2034' ||
+      error.message.includes('write conflict') ||
+      error.message.includes('deadlock'))
+  );
+}
+
+async function withSerializableRetry<T>(operation: () => Promise<T>): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= SERIALIZABLE_RETRY_ATTEMPTS; attempt += 1) {
+    try {
+      return await operation();
+    } catch (error) {
+      if (!isSerializableConflict(error) || attempt === SERIALIZABLE_RETRY_ATTEMPTS) {
+        throw error;
+      }
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
+function lifecycleStatusToIsActive(status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED'): boolean {
+  return status === 'ACTIVE';
+}
+
+function isActiveToLifecycleStatus(isActive: boolean): 'ACTIVE' | 'ARCHIVED' {
+  return isActive ? 'ACTIVE' : 'ARCHIVED';
+}
+
+function resolveAgentLifecycleInput(input: {
+  isActive?: boolean | undefined;
+  lifecycleStatus?: 'DRAFT' | 'ACTIVE' | 'ARCHIVED' | undefined;
+}): { isActive?: boolean; lifecycleStatus?: 'DRAFT' | 'ACTIVE' | 'ARCHIVED' } {
+  if (input.lifecycleStatus && input.isActive !== undefined) {
+    const expectedIsActive = lifecycleStatusToIsActive(input.lifecycleStatus);
+    if (input.isActive !== expectedIsActive) {
+      throw new Error('isActive must match lifecycleStatus.');
+    }
+    return { isActive: input.isActive, lifecycleStatus: input.lifecycleStatus };
+  }
+
+  if (input.lifecycleStatus) {
+    return {
+      lifecycleStatus: input.lifecycleStatus,
+      isActive: lifecycleStatusToIsActive(input.lifecycleStatus),
+    };
+  }
+
+  if (input.isActive !== undefined) {
+    return {
+      isActive: input.isActive,
+      lifecycleStatus: isActiveToLifecycleStatus(input.isActive),
+    };
+  }
+
+  return {};
 }
 
 const agentRoutes: FastifyPluginAsync = async (fastify) => {
@@ -161,6 +226,12 @@ const agentRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.status(400).send({ error: result.error.flatten().fieldErrors });
     }
     const d = result.data;
+    let lifecycle;
+    try {
+      lifecycle = resolveAgentLifecycleInput(d);
+    } catch (error) {
+      return reply.status(400).send({ error: (error as Error).message });
+    }
     if (d.bookingEnabled) {
       await fastify.deps.entitlements.assertFeature(
         { tenantId: req.user.tenantId, userId: req.user.sub },
@@ -168,45 +239,48 @@ const agentRoutes: FastifyPluginAsync = async (fastify) => {
       );
     }
 
-    const agent = await prisma.$transaction(
-      async (tx) => {
-        await lockTenantQuota(tx, req.user.tenantId, 'agents');
-        await fastify.deps.entitlements.assertQuota(
-          { tenantId: req.user.tenantId, userId: req.user.sub },
-          'agents',
-          1,
-          () => tx.agent.count({ where: { tenantId: req.user.tenantId } }),
-        );
+    const agent = await withSerializableRetry(() =>
+      prisma.$transaction(
+        async (tx) => {
+          await lockTenantQuota(tx, req.user.tenantId, 'agents');
+          await fastify.deps.entitlements.assertQuota(
+            { tenantId: req.user.tenantId, userId: req.user.sub },
+            'agents',
+            1,
+            () => tx.agent.count({ where: { tenantId: req.user.tenantId } }),
+          );
 
-        return tx.agent.create({
-          data: {
-            tenantId: req.user.tenantId,
-            name: d.name,
-            ...(d.role !== undefined ? { role: d.role } : {}),
-            ...(d.greetingMessage !== undefined ? { greetingMessage: d.greetingMessage } : {}),
-            ...(d.proactiveMessageDelay !== undefined
-              ? { proactiveMessageDelay: d.proactiveMessageDelay }
-              : {}),
-            ...(d.proactiveMessageText !== undefined
-              ? { proactiveMessageText: d.proactiveMessageText || null }
-              : {}),
-            systemPrompt: d.systemPrompt,
-            llmModel: d.llmModel,
-            language: d.language,
-            sessionTtlMinutes: d.sessionTtlMinutes,
-            sourcePriority: d.sourcePriority,
-            sttProvider: d.sttProvider,
-            allowedOrigins: d.allowedOrigins,
-            maxMessagesPerHourPerVisitor: d.maxMessagesPerHourPerVisitor,
-            maxSessionsPerDayPerVisitor: d.maxSessionsPerDayPerVisitor,
-            maxMessageLength: d.maxMessageLength,
-            bookingEnabled: d.bookingEnabled,
-            publicKey: generatePublicKey(),
-          },
-          select: AGENT_SAFE_SELECT,
-        });
-      },
-      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+          return tx.agent.create({
+            data: {
+              tenantId: req.user.tenantId,
+              name: d.name,
+              ...(d.role !== undefined ? { role: d.role } : {}),
+              ...(d.greetingMessage !== undefined ? { greetingMessage: d.greetingMessage } : {}),
+              ...(d.proactiveMessageDelay !== undefined
+                ? { proactiveMessageDelay: d.proactiveMessageDelay }
+                : {}),
+              ...(d.proactiveMessageText !== undefined
+                ? { proactiveMessageText: d.proactiveMessageText || null }
+                : {}),
+              systemPrompt: d.systemPrompt,
+              llmModel: d.llmModel,
+              language: d.language,
+              sessionTtlMinutes: d.sessionTtlMinutes,
+              sourcePriority: d.sourcePriority,
+              sttProvider: d.sttProvider,
+              allowedOrigins: d.allowedOrigins,
+              maxMessagesPerHourPerVisitor: d.maxMessagesPerHourPerVisitor,
+              maxSessionsPerDayPerVisitor: d.maxSessionsPerDayPerVisitor,
+              maxMessageLength: d.maxMessageLength,
+              bookingEnabled: d.bookingEnabled,
+              ...lifecycle,
+              publicKey: generatePublicKey(),
+            },
+            select: AGENT_SAFE_SELECT,
+          });
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      ),
     );
 
     return reply.status(201).send(agent);
@@ -239,6 +313,12 @@ const agentRoutes: FastifyPluginAsync = async (fastify) => {
     if (!existing) return reply.status(404).send({ error: 'Agent not found' });
 
     const d = result.data;
+    let lifecycle;
+    try {
+      lifecycle = resolveAgentLifecycleInput(d);
+    } catch (error) {
+      return reply.status(400).send({ error: (error as Error).message });
+    }
     if (d.bookingEnabled === true) {
       await fastify.deps.entitlements.assertFeature(
         { tenantId: req.user.tenantId, userId: req.user.sub },
@@ -278,6 +358,7 @@ const agentRoutes: FastifyPluginAsync = async (fastify) => {
           : {}),
         ...(d.maxMessageLength !== undefined ? { maxMessageLength: d.maxMessageLength } : {}),
         ...(d.bookingEnabled !== undefined ? { bookingEnabled: d.bookingEnabled } : {}),
+        ...lifecycle,
       },
       select: AGENT_SAFE_SELECT,
     });

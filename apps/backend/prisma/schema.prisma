@@ -11,21 +11,38 @@ datasource db {
 // ─────────────────────────────────────────────────────────────
 
 model Tenant {
-  id        String   @id @default(cuid())
-  name      String
-  createdAt DateTime @default(now())
-  users     User[]
-  agents    Agent[]
+  id               String                     @id @default(cuid())
+  name             String
+  createdAt        DateTime                   @default(now())
+  users            User[]
+  agents           Agent[]
+  memberships      Membership[]
+  invitations      WorkspaceInvitation[]
+  authSessions     AuthSession[]
+  auditLogs        AuditLog[]
+  planAssignments  TenantPlanAssignment[]
+  onboardingStates WorkspaceOnboardingState[]
 }
 
 model User {
-  id           String   @id @default(cuid())
-  tenantId     String
-  email        String   @unique
-  passwordHash String
-  role         UserRole @default(OWNER)
-  createdAt    DateTime @default(now())
-  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  id                 String                @id @default(cuid())
+  tenantId           String?
+  email              String                @unique
+  normalizedEmail    String                @unique
+  emailVerified      Boolean               @default(false)
+  passwordHash       String?
+  role               UserRole              @default(OWNER)
+  status             UserStatus            @default(ACTIVE)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  tenant             Tenant?               @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  externalIdentities ExternalIdentity[]
+  memberships        Membership[]
+  authSessions       AuthSession[]
+  sentInvitations    WorkspaceInvitation[] @relation("InvitationsInvitedBy")
+  auditLogs          AuditLog[]
+
+  @@index([tenantId])
 }
 
 enum UserRole {
@@ -34,38 +51,193 @@ enum UserRole {
   OPERATOR
 }
 
+enum UserStatus {
+  ACTIVE
+  DISABLED
+  DELETED
+}
+
+model ExternalIdentity {
+  id        String   @id @default(cuid())
+  userId    String
+  provider  String
+  subject   String
+  email     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, subject])
+  @@index([userId])
+  @@index([email])
+}
+
+model Membership {
+  id        String           @id @default(cuid())
+  userId    String
+  tenantId  String
+  role      UserRole
+  status    MembershipStatus @default(ACTIVE)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  authSessions AuthSession[]
+
+  @@unique([userId, tenantId])
+  @@index([tenantId, status])
+  @@index([userId, status])
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+  REMOVED
+}
+
+model WorkspaceInvitation {
+  id          String    @id @default(cuid())
+  workspaceId String
+  email       String
+  role        UserRole
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  revokedAt   DateTime?
+  invitedById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Tenant @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy User   @relation("InvitationsInvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, email])
+  @@index([email])
+  @@index([expiresAt])
+}
+
+model AuthSession {
+  id                   String    @id @default(cuid())
+  tokenHash            String    @unique
+  userId               String
+  tenantId             String?
+  selectedMembershipId String?
+  issuedAt             DateTime  @default(now())
+  expiresAt            DateTime
+  revokedAt            DateTime?
+  lastSeenAt           DateTime  @default(now())
+  userAgent            String?
+  ipHash               String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  selectedWorkspace  Tenant?     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  selectedMembership Membership? @relation(fields: [selectedMembershipId], references: [id], onDelete: SetNull)
+
+  @@index([userId, revokedAt])
+  @@index([tenantId])
+  @@index([selectedMembershipId])
+  @@index([expiresAt])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  actorUserId String?
+  action      String
+  targetType  String
+  targetId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  workspace Tenant? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  actor     User?   @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([action])
+}
+
+model TenantPlanAssignment {
+  id        String                     @id @default(cuid())
+  tenantId  String
+  plan      WorkspacePlanName
+  source    TenantPlanAssignmentSource
+  startsAt  DateTime                   @default(now())
+  endsAt    DateTime?
+  createdAt DateTime                   @default(now())
+  updatedAt DateTime                   @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, startsAt])
+  @@index([tenantId, endsAt])
+  @@index([plan])
+}
+
+enum WorkspacePlanName {
+  Lite
+  PRO
+}
+
+enum TenantPlanAssignmentSource {
+  ONBOARDING
+  MANUAL
+  COMPATIBILITY_BACKFILL
+}
+
+model WorkspaceOnboardingState {
+  id                       String    @id @default(cuid())
+  workspaceId              String    @unique
+  planSelectedAt           DateTime?
+  draftAgentCreatedAt      DateTime?
+  agentProfileConfiguredAt DateTime?
+  knowledgeSourceAddedAt   DateTime?
+  playgroundTestedAt       DateTime?
+  completedAt              DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  workspace Tenant @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
 // ─────────────────────────────────────────────────────────────
 // Agent
 // ─────────────────────────────────────────────────────────────
 
 model Agent {
-  id                String         @id @default(cuid())
-  tenantId          String
-  name              String
-  role              String?
-  avatarUrl         String?
-  systemPrompt      String         @db.Text
-  llmModel          String         @default("openai/gpt-4o-mini")
-  embeddingModel    String         @default("text-embedding-3-small")
-  language          String         @default("auto")
-  sourcePriority    SourcePriority @default(MERGE)
-  sessionTtlMinutes Int            @default(120)
-  publicKey         String         @unique
-  allowedOrigins    String[]       @default([])
-  isActive          Boolean        @default(true)
-  greetingMessage               String?        @db.Text
+  id                           String               @id @default(cuid())
+  tenantId                     String
+  name                         String
+  role                         String?
+  avatarUrl                    String?
+  systemPrompt                 String               @db.Text
+  llmModel                     String               @default("openai/gpt-4o-mini")
+  embeddingModel               String               @default("text-embedding-3-small")
+  language                     String               @default("auto")
+  sourcePriority               SourcePriority       @default(MERGE)
+  sessionTtlMinutes            Int                  @default(120)
+  publicKey                    String               @unique
+  allowedOrigins               String[]             @default([])
+  isActive                     Boolean              @default(true)
+  greetingMessage              String?              @db.Text
   proactiveMessageDelay        Int?
-  proactiveMessageText         String?        @db.Text
-  encryptedSecrets              Json?
-  sttProvider                   STTProvider    @default(DEEPGRAM)
+  proactiveMessageText         String?              @db.Text
+  encryptedSecrets             Json?
+  sttProvider                  STTProvider          @default(DEEPGRAM)
   // ── Phase 10.5: Anti-abuse settings ──
-  maxMessagesPerHourPerVisitor  Int            @default(60)
-  maxSessionsPerDayPerVisitor   Int            @default(10)
-  maxMessageLength              Int            @default(2000)
+  maxMessagesPerHourPerVisitor Int                  @default(60)
+  maxSessionsPerDayPerVisitor  Int                  @default(10)
+  maxMessageLength             Int                  @default(2000)
   // ── Phase 10.6: Booking ──
-  bookingEnabled                Boolean        @default(false)
-  createdAt                     DateTime       @default(now())
-  updatedAt                     DateTime       @updatedAt
+  bookingEnabled               Boolean              @default(false)
+  lifecycleStatus              AgentLifecycleStatus @default(ACTIVE)
+  createdAt                    DateTime             @default(now())
+  updatedAt                    DateTime             @updatedAt
 
   tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
   documents     Document[]
@@ -86,6 +258,12 @@ enum SourcePriority {
 enum STTProvider {
   DEEPGRAM
   WHISPER
+}
+
+enum AgentLifecycleStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -168,19 +346,19 @@ enum ChunkSourceType {
 // ─────────────────────────────────────────────────────────────
 
 model Session {
-  id           String    @id @default(cuid())
-  agentId      String
-  visitorId    String?
-  origin       String?
-  userAgent    String?
-  ipHash       String?
-  language     String?
-  summary      String?   @db.Text
+  id             String    @id @default(cuid())
+  agentId        String
+  visitorId      String?
+  origin         String?
+  userAgent      String?
+  ipHash         String?
+  language       String?
+  summary        String?   @db.Text
   bookingContext Json?
-  startedAt    DateTime  @default(now())
-  lastActiveAt DateTime  @default(now())
-  expiresAt    DateTime
-  closedAt     DateTime?
+  startedAt      DateTime  @default(now())
+  lastActiveAt   DateTime  @default(now())
+  expiresAt      DateTime
+  closedAt       DateTime?
 
   // ── Phase 10.5: Operator Inbox + Handoff ──
   status             SessionStatus @default(ACTIVE)
@@ -216,15 +394,15 @@ enum SessionStatus {
 }
 
 model Message {
-  id                String            @id @default(cuid())
+  id                String      @id @default(cuid())
   sessionId         String
   role              MessageRole
-  content           String            @db.Text
+  content           String      @db.Text
   tokensIn          Int?
   tokensOut         Int?
-  retrievedChunkIds String[]          @default([])
+  retrievedChunkIds String[]    @default([])
   latencyMs         Int?
-  createdAt         DateTime          @default(now())
+  createdAt         DateTime    @default(now())
 
   // ── Phase 10.5 ──
   authorType  MessageAuthorType @default(AGENT)
@@ -293,8 +471,8 @@ model BusinessHours {
   id                String  @id @default(cuid())
   agentId           String  @unique
   timezone          String  @default("Europe/Minsk")
-  schedule          Json    // [{dayOfWeek:1, from:"09:00", to:"18:00"}, ...]
-  holidays          Json?   // ["2026-01-01", ...]
+  schedule          Json // [{dayOfWeek:1, from:"09:00", to:"18:00"}, ...]
+  holidays          Json? // ["2026-01-01", ...]
   outOfHoursMessage String? @db.Text
   enabled           Boolean @default(false)
 
@@ -375,9 +553,9 @@ model PushSubscription {
 model Specialist {
   id          String   @id @default(cuid())
   tenantId    String
-  agentId     String?                      // null = доступен всем агентам тенанта
+  agentId     String? // null = доступен всем агентам тенанта
   name        String
-  role        String?                      // "Косметолог", "Стоматолог"
+  role        String? // "Косметолог", "Стоматолог"
   description String?  @db.Text
   avatarUrl   String?
   isActive    Boolean  @default(true)
@@ -395,11 +573,11 @@ model Specialist {
 model Service {
   id           String   @id @default(cuid())
   tenantId     String
-  specialistId String?                     // null = может оказывать любой специалист
+  specialistId String? // null = может оказывать любой специалист
   name         String
   description  String?  @db.Text
-  durationMin  Int                          // длительность в минутах
-  priceLabel   String?                      // "от 80 руб" — строкой
+  durationMin  Int // длительность в минутах
+  priceLabel   String? // "от 80 руб" — строкой
   isGroup      Boolean  @default(false)
   capacity     Int      @default(1)
   isActive     Boolean  @default(true)
@@ -416,9 +594,9 @@ model Service {
 model SpecialistWorkingHours {
   id           String @id @default(cuid())
   specialistId String
-  dayOfWeek    Int    // 0=воскресенье .. 6=суббота
-  fromMinutes  Int    // 540 = 09:00
-  toMinutes    Int    // 1080 = 18:00
+  dayOfWeek    Int // 0=воскресенье .. 6=суббота
+  fromMinutes  Int // 540 = 09:00
+  toMinutes    Int // 1080 = 18:00
 
   specialist Specialist @relation(fields: [specialistId], references: [id], onDelete: Cascade)
 
@@ -429,7 +607,7 @@ model Appointment {
   id              String            @id @default(cuid())
   tenantId        String
   agentId         String?
-  sessionId       String?           // откуда пришла запись
+  sessionId       String? // откуда пришла запись
   specialistId    String
   serviceId       String?
   visitorName     String
@@ -440,7 +618,7 @@ model Appointment {
   status          AppointmentStatus @default(PENDING)
   source          AppointmentSource @default(AGENT)
   notes           String?           @db.Text
-  createdByUserId String?           // userId оператора, если создал оператор
+  createdByUserId String? // userId оператора, если создал оператор
   createdAt       DateTime          @default(now())
   updatedAt       DateTime          @updatedAt
 
@@ -464,5 +642,3 @@ enum AppointmentSource {
   AGENT
   OPERATOR
 }
-
-
