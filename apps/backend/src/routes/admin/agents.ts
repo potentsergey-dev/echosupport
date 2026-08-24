@@ -4,12 +4,12 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { randomBytes } from 'node:crypto';
-import { Prisma } from '@prisma/client';
 import { prisma } from '../../db/prisma.js';
 import { env } from '../../config/env.js';
 import { encrypt, decrypt } from '../../services/crypto.js';
 import { clearAgentSecretsCache } from '../../services/agent-secrets.js';
 import { checkQdrantConnection } from '../../adapters/vectorstore/qdrant.js';
+import { createAgentWithQuota } from '../../services/agent-quota.js';
 
 // ── Zod schemas ─────────────────────────────────────────────────────────────
 
@@ -132,41 +132,6 @@ const AGENT_SAFE_SELECT = {
 // ── Route plugin ─────────────────────────────────────────────────────────────
 
 const ADMIN_ROLES = ['OWNER', 'ADMIN'] as const;
-const SERIALIZABLE_RETRY_ATTEMPTS = 3;
-
-async function lockTenantQuota(
-  tx: Prisma.TransactionClient,
-  tenantId: string,
-  quota: string,
-): Promise<void> {
-  await tx.$executeRaw`
-    SELECT pg_advisory_xact_lock(hashtext(${tenantId}), hashtext(${quota}))
-  `;
-}
-
-function isSerializableConflict(error: unknown): boolean {
-  return (
-    error instanceof Prisma.PrismaClientKnownRequestError &&
-    (error.code === 'P2034' ||
-      error.message.includes('write conflict') ||
-      error.message.includes('deadlock'))
-  );
-}
-
-async function withSerializableRetry<T>(operation: () => Promise<T>): Promise<T> {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= SERIALIZABLE_RETRY_ATTEMPTS; attempt += 1) {
-    try {
-      return await operation();
-    } catch (error) {
-      if (!isSerializableConflict(error) || attempt === SERIALIZABLE_RETRY_ATTEMPTS) {
-        throw error;
-      }
-      lastError = error;
-    }
-  }
-  throw lastError;
-}
 
 function lifecycleStatusToIsActive(status: 'DRAFT' | 'ACTIVE' | 'ARCHIVED'): boolean {
   return status === 'ACTIVE';
@@ -239,49 +204,36 @@ const agentRoutes: FastifyPluginAsync = async (fastify) => {
       );
     }
 
-    const agent = await withSerializableRetry(() =>
-      prisma.$transaction(
-        async (tx) => {
-          await lockTenantQuota(tx, req.user.tenantId, 'agents');
-          await fastify.deps.entitlements.assertQuota(
-            { tenantId: req.user.tenantId, userId: req.user.sub },
-            'agents',
-            1,
-            () => tx.agent.count({ where: { tenantId: req.user.tenantId } }),
-          );
-
-          return tx.agent.create({
-            data: {
-              tenantId: req.user.tenantId,
-              name: d.name,
-              ...(d.role !== undefined ? { role: d.role } : {}),
-              ...(d.greetingMessage !== undefined ? { greetingMessage: d.greetingMessage } : {}),
-              ...(d.proactiveMessageDelay !== undefined
-                ? { proactiveMessageDelay: d.proactiveMessageDelay }
-                : {}),
-              ...(d.proactiveMessageText !== undefined
-                ? { proactiveMessageText: d.proactiveMessageText || null }
-                : {}),
-              systemPrompt: d.systemPrompt,
-              llmModel: d.llmModel,
-              language: d.language,
-              sessionTtlMinutes: d.sessionTtlMinutes,
-              sourcePriority: d.sourcePriority,
-              sttProvider: d.sttProvider,
-              allowedOrigins: d.allowedOrigins,
-              maxMessagesPerHourPerVisitor: d.maxMessagesPerHourPerVisitor,
-              maxSessionsPerDayPerVisitor: d.maxSessionsPerDayPerVisitor,
-              maxMessageLength: d.maxMessageLength,
-              bookingEnabled: d.bookingEnabled,
-              ...lifecycle,
-              publicKey: generatePublicKey(),
-            },
-            select: AGENT_SAFE_SELECT,
-          });
-        },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
-      ),
-    );
+    const agent = await createAgentWithQuota(prisma, fastify.deps.entitlements, {
+      tenantId: req.user.tenantId,
+      userId: req.user.sub,
+      data: {
+        tenantId: req.user.tenantId,
+        name: d.name,
+        ...(d.role !== undefined ? { role: d.role } : {}),
+        ...(d.greetingMessage !== undefined ? { greetingMessage: d.greetingMessage } : {}),
+        ...(d.proactiveMessageDelay !== undefined
+          ? { proactiveMessageDelay: d.proactiveMessageDelay }
+          : {}),
+        ...(d.proactiveMessageText !== undefined
+          ? { proactiveMessageText: d.proactiveMessageText || null }
+          : {}),
+        systemPrompt: d.systemPrompt,
+        llmModel: d.llmModel,
+        language: d.language,
+        sessionTtlMinutes: d.sessionTtlMinutes,
+        sourcePriority: d.sourcePriority,
+        sttProvider: d.sttProvider,
+        allowedOrigins: d.allowedOrigins,
+        maxMessagesPerHourPerVisitor: d.maxMessagesPerHourPerVisitor,
+        maxSessionsPerDayPerVisitor: d.maxSessionsPerDayPerVisitor,
+        maxMessageLength: d.maxMessageLength,
+        bookingEnabled: d.bookingEnabled,
+        ...lifecycle,
+        publicKey: generatePublicKey(),
+      },
+      select: AGENT_SAFE_SELECT,
+    });
 
     return reply.status(201).send(agent);
   });
