@@ -559,7 +559,7 @@ function DeleteAgentBlock({ agent }: { agent: Agent }) {
       void qc.invalidateQueries({ queryKey: ['agents'] });
       qc.removeQueries({ queryKey: ['agent', agent.id] });
       addToast('Агент удален');
-      navigate('/agents');
+      void navigate('/agents');
     },
     onError: (err) => addToast(err.message, 'error'),
   });

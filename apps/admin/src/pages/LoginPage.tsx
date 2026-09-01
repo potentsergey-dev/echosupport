@@ -24,7 +24,7 @@ export function LoginPage() {
       queryClient.clear();
       setToken(token);
       setRole(user.role);
-      navigate('/agents');
+      void navigate('/agents');
     } catch (err) {
       setError((err as Error).message ?? 'Ошибка входа');
     } finally {

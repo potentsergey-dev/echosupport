@@ -119,7 +119,7 @@ services:
   migrate:
     build:
       context: .
-      target: runner
+      target: migrator
       args:
         VITE_APP_EDITION: ${APP_EDITION:-pro}
     command: sh -c "./node_modules/.bin/prisma migrate deploy && node dist/db/seed.js"

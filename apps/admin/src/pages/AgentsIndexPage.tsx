@@ -15,7 +15,7 @@ export function AgentsIndexPage() {
   // Redirect to first agent when available
   useEffect(() => {
     if (!isLoading && agents.length > 0 && agents[0]) {
-      navigate(`/agents/${agents[0].id}`, { replace: true });
+      void navigate(`/agents/${agents[0].id}`, { replace: true });
     }
   }, [agents, isLoading, navigate]);
 
