@@ -26,7 +26,7 @@ COPY apps/backend/prisma apps/backend/prisma
 COPY apps/backend/prisma.config.ts apps/backend/prisma.config.ts
 RUN pnpm install --frozen-lockfile --filter @echosupport/backend...
 RUN pnpm --filter @echosupport/backend db:generate
-RUN pnpm prune --prod
+RUN pnpm prune --prod --ignore-scripts
 
 FROM base AS runner
 WORKDIR /app
