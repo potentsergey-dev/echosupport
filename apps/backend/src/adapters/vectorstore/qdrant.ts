@@ -1,4 +1,4 @@
-import { QdrantClient } from '@qdrant/js-client-rest';
+import { QdrantClient, type Schemas } from '@qdrant/js-client-rest';
 import { env } from '../../config/env.js';
 
 const VECTOR_SIZE = 1536;
@@ -53,6 +53,8 @@ export interface QdrantPoint {
   payload: Record<string, unknown>;
 }
 
+export type QdrantSearchPoint = Schemas['ScoredPoint'];
+
 export async function upsertPoints(tenantId: string, points: QdrantPoint[]): Promise<void> {
   if (points.length === 0) return;
   await getClient().upsert(getCollectionName(tenantId), { wait: true, points });
@@ -88,13 +90,14 @@ export async function deleteBySourceId(tenantId: string, sourceId: string): Prom
 export async function searchPoints(
   tenantId: string,
   vector: number[],
-  filter: Record<string, unknown>,
+  filter: Schemas['Filter'],
   limit = 5,
-) {
-  return getClient().search(getCollectionName(tenantId), {
-    vector,
+): Promise<QdrantSearchPoint[]> {
+  const response = await getClient().query(getCollectionName(tenantId), {
+    query: vector,
     filter,
     limit,
     with_payload: true,
   });
+  return response.points;
 }

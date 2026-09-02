@@ -35,7 +35,7 @@ function NewAgentModal({ onClose }: { onClose: () => void }) {
     onSuccess: (agent) => {
       void qc.invalidateQueries({ queryKey: ['agents'] });
       onClose();
-      navigate(`/agents/${agent.id}`);
+      void navigate(`/agents/${agent.id}`);
     },
   });
 
@@ -125,7 +125,7 @@ export function Sidebar({ activeAgentId }: { activeAgentId?: string | undefined 
   function handleLogout() {
     clearAdminSession(qc);
     clearWorkingMode();
-    navigate('/login');
+    void navigate('/login');
   }
 
   return (

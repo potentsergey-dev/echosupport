@@ -2,7 +2,10 @@ packages:
   - 'apps/*'
   - 'packages/*'
 overrides:
-  hono: ^4.12.25
+  deepmerge-ts: 8.0.0
+  hono: ^4.12.34
+  mysql2: 3.22.0
+  undici: 7.29.0
 allowBuilds:
   '@prisma/engines': false
   esbuild: false

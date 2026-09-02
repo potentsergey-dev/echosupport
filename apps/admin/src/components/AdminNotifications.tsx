@@ -123,7 +123,7 @@ export function AdminNotifications({
   const openInbox = useCallback(() => {
     setVisibleNotification(null);
     window.focus();
-    navigate('/inbox');
+    void navigate('/inbox');
   }, [navigate]);
 
   const showSystemNotification = useCallback(

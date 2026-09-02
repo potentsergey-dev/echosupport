@@ -1,8 +1,9 @@
 # syntax=docker/dockerfile:1.7
-FROM node:22-alpine AS builder
+FROM node:22-alpine AS base
 WORKDIR /app
 RUN corepack enable
 
+FROM base AS builder
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/backend/package.json apps/backend/package.json
 COPY apps/admin/package.json apps/admin/package.json
@@ -16,15 +17,26 @@ ENV VITE_APP_EDITION=${VITE_APP_EDITION}
 RUN pnpm --filter @echosupport/backend db:generate
 RUN pnpm build:prod
 
-FROM node:22-alpine AS runner
+FROM base AS prod-deps
+ENV CI=true \
+  HUSKY=0
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
+COPY apps/backend/package.json apps/backend/package.json
+COPY apps/backend/prisma apps/backend/prisma
+COPY apps/backend/prisma.config.ts apps/backend/prisma.config.ts
+RUN pnpm install --frozen-lockfile --filter @echosupport/backend...
+RUN pnpm --filter @echosupport/backend db:generate
+RUN pnpm prune --prod --ignore-scripts
+RUN pnpm install --frozen-lockfile --prod --filter @echosupport/backend... --ignore-scripts
+
+FROM base AS runner
 WORKDIR /app
 ENV NODE_ENV=production
-RUN corepack enable
 
-COPY --from=builder /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/apps/backend/package.json ./apps/backend/package.json
-COPY --from=builder /app/apps/backend/node_modules ./apps/backend/node_modules
+COPY --from=prod-deps /app/package.json /app/pnpm-lock.yaml /app/pnpm-workspace.yaml ./
+COPY --from=prod-deps /app/node_modules ./node_modules
+COPY --from=prod-deps /app/apps/backend/package.json ./apps/backend/package.json
+COPY --from=prod-deps /app/apps/backend/node_modules ./apps/backend/node_modules
 COPY --from=builder /app/apps/backend/dist ./apps/backend/dist
 COPY --from=builder /app/apps/backend/prisma ./apps/backend/prisma
 COPY --from=builder /app/apps/backend/prisma.config.ts ./apps/backend/prisma.config.ts
@@ -32,7 +44,13 @@ COPY --from=builder /app/apps/backend/public ./apps/backend/public
 COPY --from=builder /app/apps/admin/dist ./apps/admin/dist
 COPY docker/backend-entrypoint.sh /usr/local/bin/echosupport-entrypoint
 
-RUN chmod +x /usr/local/bin/echosupport-entrypoint \
+RUN apk upgrade --no-cache \
+  && rm -rf /usr/local/lib/node_modules/npm \
+    /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/npm \
+    /usr/local/bin/npx \
+    /usr/local/bin/corepack \
+  && chmod +x /usr/local/bin/echosupport-entrypoint \
   && chmod -R a+rX /app/apps/backend/public \
   && mkdir -p /app/apps/backend/uploads \
   && chown -R node:node /app/apps/backend/uploads
@@ -44,3 +62,8 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
 
 USER node
 ENTRYPOINT ["echosupport-entrypoint"]
+
+FROM builder AS migrator
+ENV NODE_ENV=production
+WORKDIR /app/apps/backend
+USER node

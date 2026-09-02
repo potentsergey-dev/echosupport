@@ -65,6 +65,18 @@ curl -fsS https://support.example.com/api/v1/ready
 docker compose logs --tail=100 backend
 ```
 
+## Dependency and Container Security
+
+- Review [Dependency Audit](security/dependency-audit.md) before merging dependency updates.
+- CI runs `pnpm audit --prod --audit-level high`, a Gitleaks repository scan, and a Trivy
+  `HIGH`/`CRITICAL` scan of the final `runner` image.
+- The `backend` and `worker` services use the `runner` Docker target with production-only
+  dependencies. Do not run migrations from this target.
+- The `migrate` service uses the separate `migrator` Docker target, where Prisma CLI and seed
+  tooling are allowed because migrations are its only responsibility.
+- Run migrations with `prisma migrate deploy`; never use `prisma migrate reset` or `prisma db push`
+  for production upgrades.
+
 ## Readiness and Troubleshooting
 
 - `/api/v1/health` checks that the HTTP process is alive.
