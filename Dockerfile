@@ -18,6 +18,8 @@ RUN pnpm --filter @echosupport/backend db:generate
 RUN pnpm build:prod
 
 FROM base AS prod-deps
+ENV CI=true \
+  HUSKY=0
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml tsconfig.base.json ./
 COPY apps/backend/package.json apps/backend/package.json
 COPY apps/backend/prisma apps/backend/prisma
