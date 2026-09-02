@@ -27,6 +27,7 @@ COPY apps/backend/prisma.config.ts apps/backend/prisma.config.ts
 RUN pnpm install --frozen-lockfile --filter @echosupport/backend...
 RUN pnpm --filter @echosupport/backend db:generate
 RUN pnpm prune --prod --ignore-scripts
+RUN pnpm install --frozen-lockfile --prod --filter @echosupport/backend... --ignore-scripts
 
 FROM base AS runner
 WORKDIR /app
@@ -43,7 +44,13 @@ COPY --from=builder /app/apps/backend/public ./apps/backend/public
 COPY --from=builder /app/apps/admin/dist ./apps/admin/dist
 COPY docker/backend-entrypoint.sh /usr/local/bin/echosupport-entrypoint
 
-RUN chmod +x /usr/local/bin/echosupport-entrypoint \
+RUN apk upgrade --no-cache \
+  && rm -rf /usr/local/lib/node_modules/npm \
+    /usr/local/lib/node_modules/corepack \
+    /usr/local/bin/npm \
+    /usr/local/bin/npx \
+    /usr/local/bin/corepack \
+  && chmod +x /usr/local/bin/echosupport-entrypoint \
   && chmod -R a+rX /app/apps/backend/public \
   && mkdir -p /app/apps/backend/uploads \
   && chown -R node:node /app/apps/backend/uploads
