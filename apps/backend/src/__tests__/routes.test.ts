@@ -308,6 +308,53 @@ describe('knowledge routes — indexing boundaries', () => {
   });
 });
 
+describe('versioned document deletion', () => {
+  it.each(['supported', 'unsupported', 'storage-failure'] as const)(
+    'handles %s adapters without deleting a different version',
+    async (mode) => {
+      const app = await buildTestServer();
+      await app.ready();
+      vi.mocked(prisma.agent.findFirst).mockResolvedValueOnce({
+        id: 'agent-1',
+        tenantId: 'tenant-1',
+      } as never);
+      vi.mocked(prisma.document.findFirst).mockResolvedValueOnce({
+        id: 'doc-1',
+        agentId: 'agent-1',
+        storagePath: 'objects/doc-1',
+        storageVersion: 'pinned-version',
+      } as never);
+      vi.mocked(prisma.document.delete).mockClear();
+      const deleteFile = vi.fn();
+      const deleteFileVersion =
+        mode === 'storage-failure'
+          ? vi.fn().mockRejectedValue(new Error('Storage unavailable'))
+          : vi.fn().mockResolvedValue(undefined);
+      app.deps.storage = {
+        ...app.deps.storage,
+        deleteFile,
+        ...(mode === 'unsupported' ? {} : { deleteFileVersion }),
+      };
+      try {
+        const res = await app.inject({
+          method: 'DELETE',
+          url: '/api/v1/admin/agents/agent-1/documents/doc-1',
+          headers: { Authorization: `Bearer ${signToken(app)}` },
+        });
+        expect(res.statusCode).toBe(
+          mode === 'supported' ? 204 : mode === 'unsupported' ? 503 : 500,
+        );
+        expect(deleteFile).not.toHaveBeenCalled();
+        if (mode !== 'unsupported')
+          expect(deleteFileVersion).toHaveBeenCalledWith('objects/doc-1', 'pinned-version');
+        expect(prisma.document.delete).toHaveBeenCalledTimes(mode === 'supported' ? 1 : 0);
+      } finally {
+        await app.close();
+      }
+    },
+  );
+});
+
 describe('internal cron — cleanup endpoint', () => {
   it('rejects request without CRON_SECRET', async () => {
     const app = await buildTestServer();

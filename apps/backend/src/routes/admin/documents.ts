@@ -155,9 +155,19 @@ const documentRoutes: FastifyPluginAsync = async (fastify) => {
     const doc = await prisma.document.findFirst({ where: { id: docId, agentId } });
     if (!doc) return reply.status(404).send({ error: 'Document not found' });
 
+    if (doc.storageVersion && !fastify.deps.storage.deleteFileVersion) {
+      return reply
+        .status(503)
+        .send({ error: 'Storage adapter cannot delete pinned object versions' });
+    }
+
     await deleteByDocumentId(agent.tenantId, docId);
     await prisma.documentChunk.deleteMany({ where: { documentId: docId } });
-    await fastify.deps.storage.deleteFile(doc.storagePath);
+    if (doc.storageVersion) {
+      await fastify.deps.storage.deleteFileVersion!(doc.storagePath, doc.storageVersion);
+    } else {
+      await fastify.deps.storage.deleteFile(doc.storagePath);
+    }
     await prisma.document.delete({ where: { id: docId } });
 
     return reply.status(204).send();
