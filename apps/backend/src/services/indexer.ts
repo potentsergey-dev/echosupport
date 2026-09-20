@@ -24,7 +24,7 @@ async function setJobProgress(jobId: string, progress: number): Promise<void> {
 export async function reindexAgent(
   agentId: string,
   jobId: string,
-  storage: Pick<StorageAdapter, 'readFile'>,
+  storage: Pick<StorageAdapter, 'readFile' | 'readFileVersion'>,
 ): Promise<void> {
   const agent = await prisma.agent.findUniqueOrThrow({
     where: { id: agentId },
@@ -64,7 +64,14 @@ export async function reindexAgent(
     await prisma.document.update({ where: { id: doc.id }, data: { status: 'INDEXING' } });
 
     try {
-      const text = await extractText(storage, doc.storagePath, doc.mimeType);
+      const version = doc.storageVersion;
+      if (version && !storage.readFileVersion) {
+        throw new Error('Storage adapter cannot read pinned object versions');
+      }
+      const sourceStorage = version
+        ? { readFile: (storagePath: string) => storage.readFileVersion!(storagePath, version) }
+        : storage;
+      const text = await extractText(sourceStorage, doc.storagePath, doc.mimeType);
       const chunks = await chunkText(text);
 
       const allVectors: number[][] = [];

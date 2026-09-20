@@ -271,22 +271,62 @@ enum AgentLifecycleStatus {
 // ─────────────────────────────────────────────────────────────
 
 model Document {
-  id           String      @id @default(cuid())
-  agentId      String
-  filename     String
-  mimeType     String
-  sizeBytes    Int
-  storagePath  String
-  status       IndexStatus @default(PENDING)
-  chunksCount  Int         @default(0)
-  errorMessage String?
-  createdAt    DateTime    @default(now())
-  indexedAt    DateTime?
+  id             String      @id @default(cuid())
+  agentId        String
+  filename       String
+  mimeType       String
+  sizeBytes      Int
+  storagePath    String
+  storageVersion String?
+  status         IndexStatus @default(PENDING)
+  chunksCount    Int         @default(0)
+  errorMessage   String?
+  createdAt      DateTime    @default(now())
+  indexedAt      DateTime?
 
   agent  Agent           @relation(fields: [agentId], references: [id], onDelete: Cascade)
   chunks DocumentChunk[]
 
   @@index([agentId])
+}
+
+// Kept independently of agent/user deletion so storage cleanup cannot lose its ledger.
+model UploadIntent {
+  id               String             @id
+  tenantId         String
+  agentId          String
+  uploaderId       String
+  idempotencyKey   String
+  documentId       String             @unique
+  filename         String
+  mimeType         String
+  sizeBytes        Int
+  stagingKey       String             @unique
+  finalKey         String             @unique
+  sourceVersion    String?
+  finalVersion     String?
+  status           UploadIntentStatus @default(PENDING)
+  expiresAt        DateTime
+  leaseToken       String?
+  leaseExpiresAt   DateTime?
+  cleanupToken     String?
+  cleanupExpiresAt DateTime?
+  cleanupAfter     DateTime
+  completedAt      DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([status, expiresAt])
+  @@index([cleanupAfter])
+  @@index([agentId])
+}
+
+enum UploadIntentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  EXPIRED
 }
 
 model KnowledgeSource {

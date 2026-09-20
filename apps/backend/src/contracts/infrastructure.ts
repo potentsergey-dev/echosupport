@@ -10,6 +10,8 @@ export interface StorageAdapter {
   saveFile(namespaceId: string, filename: string, buffer: Buffer): Promise<string>;
   readFile(storagePath: string): Promise<Buffer>;
   deleteFile(storagePath: string): Promise<void>;
+  readFileVersion?(storagePath: string, version: string): Promise<Buffer>;
+  deleteFileVersion?(storagePath: string, version: string): Promise<void>;
 }
 
 export type JobName = 'REINDEX_AGENT' | 'CRAWL_URL' | 'CLEANUP_SESSIONS' | 'SUMMARIZE_SESSION';

@@ -73,6 +73,7 @@ const mockAgent = {
       filename: 'test.pdf',
       mimeType: 'application/pdf',
       storagePath: '/tmp/test.pdf',
+      storageVersion: null as string | null,
       status: 'PENDING',
     },
   ],
@@ -123,6 +124,8 @@ describe('indexer — Qdrant payload structure', () => {
   beforeEach(() => {
     capturedPoints.length = 0;
     fakeStorage.readFile.mockClear();
+    mockAgent.documents[0]!.storageVersion = null;
+    vi.mocked(extractText).mockReset();
     vi.mocked(extractText).mockResolvedValue('Hello world. This is a test document.');
   });
 
@@ -141,6 +144,24 @@ describe('indexer — Qdrant payload structure', () => {
       expect(typeof point.payload['content']).toBe('string');
       expect((point.payload['content'] as string).length).toBeGreaterThan(0);
     }
+  });
+
+  it('reads the pinned version rather than the current object contents', async () => {
+    mockAgent.documents[0]!.storageVersion = '9007199254740993';
+    const readFileVersion = vi.fn().mockResolvedValue(Buffer.from('Pinned content'));
+    vi.mocked(extractText).mockImplementation(async (storage, key) =>
+      (await storage.readFile(key)).toString('utf8'),
+    );
+    await reindexAgent('agent-1', 'job-1', { ...fakeStorage, readFileVersion });
+    expect(readFileVersion).toHaveBeenCalledWith('/tmp/test.pdf', '9007199254740993');
+    expect(fakeStorage.readFile).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when an adapter cannot read pinned versions', async () => {
+    mockAgent.documents[0]!.storageVersion = 'version-1';
+    await expect(reindexAgent('agent-1', 'job-1', fakeStorage)).rejects.toThrow(/failed to index/i);
+    expect(extractText).not.toHaveBeenCalled();
+    expect(fakeStorage.readFile).not.toHaveBeenCalled();
   });
 
   it('writes full content (not just preview) into Qdrant payload for URL chunks', async () => {
