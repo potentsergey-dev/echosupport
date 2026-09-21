@@ -10,7 +10,7 @@ import type {
 import { ApiError } from './api-errors.js';
 import type { EntitlementService } from '../contracts/entitlements.js';
 import { getEntitlementService } from './entitlements.js';
-import { prismaJobDispatcher } from './job-runner.js';
+import { prismaJobDispatcher } from './job-dispatcher.js';
 import { noopMeteringSink } from './metering.js';
 import { inMemoryRealtimeEventBus, type HubEvent } from './realtime-hub.js';
 

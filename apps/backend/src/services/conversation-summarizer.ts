@@ -2,6 +2,7 @@ import { prisma } from '../db/prisma.js';
 import { getAgentSecrets } from './agent-secrets.js';
 import { chatCompletion } from '../adapters/llm/openrouter.js';
 import { env } from '../config/env.js';
+import { prismaJobDispatcher } from './job-dispatcher.js';
 
 /** Trigger summarization when a session exceeds this many messages. */
 const SUMMARIZE_THRESHOLD = 30;
@@ -13,20 +14,16 @@ const SUMMARIZE_THRESHOLD = 30;
 export async function summarizeIfNeeded(sessionId: string): Promise<void> {
   const count = await prisma.message.count({ where: { sessionId } });
   if (count < SUMMARIZE_THRESHOLD) return;
-
-  // Avoid scheduling duplicate jobs
-  const existing = await prisma.job.findFirst({
-    where: {
-      type: 'SUMMARIZE_SESSION',
-      status: { in: ['PENDING', 'RUNNING'] },
-      payload: { path: ['sessionId'], equals: sessionId },
-    },
+  const session = await prisma.session.findUnique({
+    where: { id: sessionId },
+    select: { summary: true },
   });
-  if (existing) return;
-
-  await prisma.job.create({
-    data: { type: 'SUMMARIZE_SESSION', payload: { sessionId } },
-  });
+  if (!session || session.summary) return;
+  await prismaJobDispatcher.enqueue(
+    'SUMMARIZE_SESSION',
+    { sessionId },
+    { dedupeKey: `summarize-session:${sessionId}` },
+  );
 }
 
 /**
@@ -41,6 +38,7 @@ export async function summarizeSession(sessionId: string): Promise<void> {
       agent: { select: { id: true, llmModel: true } },
     },
   });
+  if (session.summary) return;
 
   // Resolve LLM key: agent secret → global fallback
   let openrouterKey = env.OPENROUTER_API_KEY;
@@ -70,6 +68,9 @@ export async function summarizeSession(sessionId: string): Promise<void> {
   );
 
   if (summary) {
-    await prisma.session.update({ where: { id: sessionId }, data: { summary } });
+    await prisma.session.updateMany({
+      where: { id: sessionId, summary: null },
+      data: { summary },
+    });
   }
 }

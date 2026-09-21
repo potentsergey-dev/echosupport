@@ -3,7 +3,7 @@ import { sanitizeErrorMessage } from './error-sanitizer.js';
 import { reindexAgent } from './indexer.js';
 import { summarizeSession } from './conversation-summarizer.js';
 import { createJobLeaseService } from './job-leases.js';
-import type { JobDispatcher, StorageAdapter, WorkerRunner } from '../contracts/infrastructure.js';
+import type { StorageAdapter, WorkerRunner } from '../contracts/infrastructure.js';
 
 let busy = false;
 const leases = createJobLeaseService(prisma);
@@ -67,21 +67,6 @@ export function startJobRunner(storage: Pick<StorageAdapter, 'readFile'>): NodeJ
     );
   }, 5_000);
 }
-
-export const prismaJobDispatcher: JobDispatcher = {
-  async enqueue(type, payload, options) {
-    const job = await prisma.job.create({
-      data: {
-        type,
-        payload,
-        agentId: options?.agentId ?? null,
-        scheduledAt: options?.runAt ?? new Date(),
-      },
-      select: { id: true },
-    });
-    return job;
-  },
-};
 
 export function createPrismaJobWorkerRunner(
   storage: Pick<StorageAdapter, 'readFile'>,

@@ -487,6 +487,7 @@ model Job {
   leaseToken     String?
   leaseExpiresAt DateTime?
   attemptCount   Int       @default(0)
+  dedupeKey      String?   @unique
 
   @@index([status, scheduledAt])
   @@index([status, leaseExpiresAt])

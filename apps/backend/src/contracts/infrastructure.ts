@@ -27,7 +27,7 @@ export interface JobDispatcher {
   enqueue<TName extends JobName>(
     name: TName,
     payload: JobPayloadByName[TName],
-    options?: { agentId?: string; runAt?: Date },
+    options?: { agentId?: string; runAt?: Date; dedupeKey?: string },
   ): Promise<{ id: string }>;
 }
 
