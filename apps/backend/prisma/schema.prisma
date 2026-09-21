@@ -474,18 +474,22 @@ enum MessageAuthorType {
 // ─────────────────────────────────────────────────────────────
 
 model Job {
-  id           String    @id @default(cuid())
-  type         JobType
-  agentId      String?
-  payload      Json
-  status       JobStatus @default(PENDING)
-  progress     Int       @default(0)
-  errorMessage String?
-  scheduledAt  DateTime  @default(now())
-  startedAt    DateTime?
-  finishedAt   DateTime?
+  id             String    @id @default(cuid())
+  type           JobType
+  agentId        String?
+  payload        Json
+  status         JobStatus @default(PENDING)
+  progress       Int       @default(0)
+  errorMessage   String?
+  scheduledAt    DateTime  @default(now())
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  leaseToken     String?
+  leaseExpiresAt DateTime?
+  attemptCount   Int       @default(0)
 
   @@index([status, scheduledAt])
+  @@index([status, leaseExpiresAt])
 }
 
 enum JobType {
