@@ -236,6 +236,7 @@ model Agent {
   // ── Phase 10.6: Booking ──
   bookingEnabled               Boolean              @default(false)
   lifecycleStatus              AgentLifecycleStatus @default(ACTIVE)
+  activeIndexGeneration        String?
   createdAt                    DateTime             @default(now())
   updatedAt                    DateTime             @updatedAt
 
@@ -360,18 +361,20 @@ model DocumentChunk {
   agentId       String
   documentId    String?
   sourceId      String?
-  qdrantPointId String          @unique
-  chunkIndex    Int
-  content       String          @db.Text
-  tokensCount   Int
-  sourceType    ChunkSourceType
-  sourceLabel   String?
-  createdAt     DateTime        @default(now())
+  qdrantPointId   String          @unique
+  indexGeneration String?
+  chunkIndex      Int
+  content         String          @db.Text
+  tokensCount     Int
+  sourceType      ChunkSourceType
+  sourceLabel     String?
+  createdAt       DateTime        @default(now())
 
   document Document?        @relation(fields: [documentId], references: [id], onDelete: Cascade)
   source   KnowledgeSource? @relation(fields: [sourceId], references: [id], onDelete: Cascade)
 
   @@index([agentId])
+  @@index([agentId, indexGeneration])
   @@index([documentId])
   @@index([sourceId])
 }

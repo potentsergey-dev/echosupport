@@ -28,6 +28,7 @@ vi.mock('../db/prisma.js', () => ({
         id: 'agent-1',
         tenantId: 'tenant-1',
         embeddingModel: 'text-embedding-3-small',
+        activeIndexGeneration: null,
       }),
     },
   },
@@ -52,6 +53,7 @@ vi.mock('../adapters/vectorstore/qdrant.js', () => ({
 }));
 
 const { searchPoints } = await import('../adapters/vectorstore/qdrant.js');
+const { prisma } = await import('../db/prisma.js');
 const { retrieve } = await import('../services/retriever.js');
 
 describe('retriever — content extraction from Qdrant payload', () => {
@@ -122,5 +124,57 @@ describe('retriever — content extraction from Qdrant payload', () => {
     };
     const sourceTypeFilter = filter.must.find((f) => f.key === 'source_type');
     expect(sourceTypeFilter?.match.value).toBe('FILE');
+  });
+
+  it('reads only legacy points before an index generation is published', async () => {
+    vi.mocked(searchPoints).mockResolvedValueOnce([]);
+
+    await retrieve('agent-1', 'query');
+
+    expect(searchPoints).toHaveBeenLastCalledWith(
+      'tenant-1',
+      expect.any(Array),
+      {
+        must: [
+          { key: 'agent_id', match: { value: 'agent-1' } },
+          { is_empty: { key: 'index_generation' } },
+        ],
+      },
+      5,
+    );
+  });
+
+  it('reads only the published generation for preferred and fallback searches', async () => {
+    // Vitest replaces this Prisma method with a mock; no method binding is involved.
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    vi.mocked(prisma.agent.findUniqueOrThrow).mockResolvedValueOnce({
+      id: 'agent-1',
+      tenantId: 'tenant-1',
+      embeddingModel: 'text-embedding-3-small',
+      activeIndexGeneration: 'generation-1',
+    } as never);
+    vi.mocked(searchPoints).mockResolvedValueOnce([]).mockResolvedValueOnce([]);
+
+    await retrieve('agent-1', 'query', { sourcePriority: 'URL_FIRST' });
+
+    const filters = vi
+      .mocked(searchPoints)
+      .mock.calls.slice(-2)
+      .map((call) => call[2]);
+    expect(filters).toEqual([
+      {
+        must: [
+          { key: 'agent_id', match: { value: 'agent-1' } },
+          { key: 'index_generation', match: { value: 'generation-1' } },
+          { key: 'source_type', match: { value: 'URL' } },
+        ],
+      },
+      {
+        must: [
+          { key: 'agent_id', match: { value: 'agent-1' } },
+          { key: 'index_generation', match: { value: 'generation-1' } },
+        ],
+      },
+    ]);
   });
 });

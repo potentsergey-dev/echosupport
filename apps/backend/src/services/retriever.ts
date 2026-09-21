@@ -29,7 +29,7 @@ export async function retrieve(
 
   const agent = await prisma.agent.findUniqueOrThrow({
     where: { id: agentId },
-    select: { tenantId: true, embeddingModel: true },
+    select: { tenantId: true, embeddingModel: true, activeIndexGeneration: true },
   });
 
   let queryVector: number[];
@@ -53,8 +53,11 @@ export async function retrieve(
     return [];
   }
 
+  const generationFilter = agent.activeIndexGeneration
+    ? { key: 'index_generation', match: { value: agent.activeIndexGeneration } }
+    : { is_empty: { key: 'index_generation' } };
   const agentFilter = {
-    must: [{ key: 'agent_id', match: { value: agentId } }],
+    must: [{ key: 'agent_id', match: { value: agentId } }, generationFilter],
   };
 
   try {
@@ -65,10 +68,7 @@ export async function retrieve(
     // FILES_FIRST or URL_FIRST: try preferred source type, fall back to all if too few results
     const preferredType = sourcePriority === 'FILES_FIRST' ? 'FILE' : 'URL';
     const preferredFilter = {
-      must: [
-        { key: 'agent_id', match: { value: agentId } },
-        { key: 'source_type', match: { value: preferredType } },
-      ],
+      must: [...agentFilter.must, { key: 'source_type', match: { value: preferredType } }],
     };
 
     const preferred = await searchPoints(agent.tenantId, queryVector, preferredFilter, topK);
