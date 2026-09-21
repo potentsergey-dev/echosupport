@@ -19,12 +19,23 @@ export function createPrismaJobDispatcher(db: PrismaClient): JobDispatcher {
       if (!dedupeKey) {
         return db.job.create({ data, select: { id: true } });
       }
-      const job = await db.job.upsert({
-        where: { dedupeKey },
-        create: { ...data, dedupeKey },
-        update: {},
-        select: { id: true, type: true, payload: true, agentId: true, scheduledAt: true },
-      });
+      const select = {
+        id: true,
+        type: true,
+        payload: true,
+        agentId: true,
+        scheduledAt: true,
+      } as const;
+      let job;
+      try {
+        job = await db.job.create({ data: { ...data, dedupeKey }, select });
+      } catch (error) {
+        if (!(error instanceof Error && 'code' in error && error.code === 'P2002')) {
+          throw error;
+        }
+        job = await db.job.findUnique({ where: { dedupeKey }, select });
+        if (!job) throw error;
+      }
       if (
         job.type !== type ||
         !isDeepStrictEqual(job.payload, payload) ||
