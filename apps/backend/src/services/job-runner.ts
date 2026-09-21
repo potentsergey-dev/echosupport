@@ -33,7 +33,7 @@ async function processNextJob(storage: Pick<StorageAdapter, 'readFile'>): Promis
     try {
       if (job.type === 'REINDEX_AGENT') {
         const { agentId } = job.payload as { agentId: string };
-        await reindexAgent(agentId, job.id, storage);
+        await reindexAgent(agentId, job.id, storage, token);
       } else if (job.type === 'SUMMARIZE_SESSION') {
         const { sessionId } = job.payload as { sessionId: string };
         await summarizeSession(sessionId);

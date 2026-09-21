@@ -33,6 +33,18 @@ function assertLease(job: Job, token: string, now: Date): void {
 
 export function createJobLeaseService(db: PrismaClient) {
   return {
+    async withLease<T>(
+      id: string,
+      token: string,
+      work: (tx: Prisma.TransactionClient) => Promise<T>,
+    ): Promise<T> {
+      return db.$transaction(async (tx) => {
+        const job = await lockJob(tx, id);
+        assertLease(job, token, await databaseNow(tx));
+        return work(tx);
+      });
+    },
+
     async claimNext(onlyId?: string): Promise<{ job: Job; token: string } | null> {
       return db.$transaction(async (tx) => {
         const [row] = await tx.$queryRaw<Array<{ id: string }>>`

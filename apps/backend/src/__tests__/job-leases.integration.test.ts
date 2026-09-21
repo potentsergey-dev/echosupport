@@ -106,4 +106,34 @@ describe('job leases (PostgreSQL)', () => {
     });
     expect(await leases.claimNext(job.id)).toBeNull();
   });
+
+  it('allows transactional work only under the live lease and rolls it back on failure', async () => {
+    const job = await createJob();
+    const claim = await leases.claimNext(job.id);
+
+    await expect(
+      leases.withLease(job.id, claim!.token, async (tx) => {
+        await tx.job.update({ where: { id: job.id }, data: { progress: 35 } });
+        throw new Error('abort publication');
+      }),
+    ).rejects.toThrow('abort publication');
+    expect((await prisma.job.findUniqueOrThrow({ where: { id: job.id } })).progress).toBe(0);
+
+    await leases.withLease(job.id, claim!.token, (tx) =>
+      tx.job.update({ where: { id: job.id }, data: { progress: 50 } }),
+    );
+    expect((await prisma.job.findUniqueOrThrow({ where: { id: job.id } })).progress).toBe(50);
+
+    await prisma.job.update({
+      where: { id: job.id },
+      data: { leaseExpiresAt: new Date(Date.now() - 60_000) },
+    });
+    let ran = false;
+    await expect(
+      leases.withLease(job.id, claim!.token, async () => {
+        ran = true;
+      }),
+    ).rejects.toThrow('Job lease lost');
+    expect(ran).toBe(false);
+  });
 });

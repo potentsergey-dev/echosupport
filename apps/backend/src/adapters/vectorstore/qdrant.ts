@@ -45,6 +45,10 @@ export async function ensureCollection(tenantId: string): Promise<void> {
     field_name: 'source_type',
     field_schema: 'keyword',
   });
+  await getClient().createPayloadIndex(name, {
+    field_name: 'index_generation',
+    field_schema: 'keyword',
+  });
 }
 
 export interface QdrantPoint {
@@ -66,6 +70,22 @@ export async function deleteByAgentId(tenantId: string, agentId: string): Promis
   await getClient().delete(name, {
     wait: true,
     filter: { must: [{ key: 'agent_id', match: { value: agentId } }] },
+  });
+}
+
+export async function deleteByIndexGeneration(
+  tenantId: string,
+  agentId: string,
+  generation: string,
+): Promise<void> {
+  await getClient().delete(getCollectionName(tenantId), {
+    wait: true,
+    filter: {
+      must: [
+        { key: 'agent_id', match: { value: agentId } },
+        { key: 'index_generation', match: { value: generation } },
+      ],
+    },
   });
 }
 
