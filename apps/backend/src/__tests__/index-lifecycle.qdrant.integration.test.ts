@@ -121,6 +121,15 @@ describe('index lifecycle (PostgreSQL and Qdrant)', () => {
         must: [{ key: 'agent_id', match: { value: agentId } }],
       }),
     ).toHaveLength(1);
+    const legacyFilter = {
+      must: [
+        { key: 'agent_id', match: { value: agentId } },
+        { is_empty: { key: 'index_generation' } },
+      ],
+    };
+    expect(
+      (await qdrant.scroll(getCollectionName(tenantId), { filter: legacyFilter })).points,
+    ).toHaveLength(1);
     expect(await points(agentId)).toHaveLength(1);
     expect((await retrieve(agentId, 'question')).map((chunk) => chunk.content)).toEqual([
       'Legacy knowledge',
