@@ -1,5 +1,5 @@
 import { embed } from '../adapters/embeddings/openai.js';
-import { searchPoints } from '../adapters/vectorstore/qdrant.js';
+import { searchLegacyPoints, searchPoints } from '../adapters/vectorstore/qdrant.js';
 import { prisma } from '../db/prisma.js';
 import { sanitizeErrorMessage } from './error-sanitizer.js';
 import { resolveEmbeddingConfig } from './resolve-embedding.js';
@@ -53,31 +53,36 @@ export async function retrieve(
     return [];
   }
 
-  const generationFilter = agent.activeIndexGeneration
-    ? { key: 'index_generation', match: { value: agent.activeIndexGeneration } }
-    : { is_empty: { key: 'index_generation' } };
   const agentFilter = {
-    must: [{ key: 'agent_id', match: { value: agentId } }, generationFilter],
+    must: [
+      { key: 'agent_id', match: { value: agentId } },
+      { key: 'index_generation', match: { value: agent.activeIndexGeneration } },
+    ],
+  };
+  const search = (sourceType?: 'FILE' | 'URL') => {
+    if (!agent.activeIndexGeneration) {
+      return searchLegacyPoints(agent.tenantId, agentId, queryVector, topK, sourceType);
+    }
+    const filter = sourceType
+      ? { must: [...agentFilter.must, { key: 'source_type', match: { value: sourceType } }] }
+      : agentFilter;
+    return searchPoints(agent.tenantId, queryVector, filter, topK);
   };
 
   try {
     if (sourcePriority === 'MERGE') {
-      return toChunks(await searchPoints(agent.tenantId, queryVector, agentFilter, topK));
+      return toChunks(await search());
     }
 
     // FILES_FIRST or URL_FIRST: try preferred source type, fall back to all if too few results
     const preferredType = sourcePriority === 'FILES_FIRST' ? 'FILE' : 'URL';
-    const preferredFilter = {
-      must: [...agentFilter.must, { key: 'source_type', match: { value: preferredType } }],
-    };
-
-    const preferred = await searchPoints(agent.tenantId, queryVector, preferredFilter, topK);
+    const preferred = await search(preferredType);
     if (preferred.length >= Math.ceil(topK / 2)) {
       return toChunks(preferred);
     }
 
     // Not enough from preferred source — fill from all sources
-    const fallback = await searchPoints(agent.tenantId, queryVector, agentFilter, topK);
+    const fallback = await search();
     return toChunks(fallback);
   } catch (searchErr) {
     console.warn(

@@ -28,7 +28,7 @@ vi.mock('../db/prisma.js', () => ({
         id: 'agent-1',
         tenantId: 'tenant-1',
         embeddingModel: 'text-embedding-3-small',
-        activeIndexGeneration: null,
+        activeIndexGeneration: 'generation-1',
       }),
     },
   },
@@ -50,9 +50,10 @@ function makeSearchResult(payload: Record<string, unknown>) {
 
 vi.mock('../adapters/vectorstore/qdrant.js', () => ({
   searchPoints: vi.fn(),
+  searchLegacyPoints: vi.fn(),
 }));
 
-const { searchPoints } = await import('../adapters/vectorstore/qdrant.js');
+const { searchLegacyPoints, searchPoints } = await import('../adapters/vectorstore/qdrant.js');
 const { prisma } = await import('../db/prisma.js');
 const { retrieve } = await import('../services/retriever.js');
 
@@ -127,20 +128,24 @@ describe('retriever — content extraction from Qdrant payload', () => {
   });
 
   it('reads only legacy points before an index generation is published', async () => {
-    vi.mocked(searchPoints).mockResolvedValueOnce([]);
+    // Vitest replaces this Prisma method with a mock; no method binding is involved.
+    // eslint-disable-next-line @typescript-eslint/unbound-method
+    vi.mocked(prisma.agent.findUniqueOrThrow).mockResolvedValueOnce({
+      id: 'agent-1',
+      tenantId: 'tenant-1',
+      embeddingModel: 'text-embedding-3-small',
+      activeIndexGeneration: null,
+    } as never);
+    vi.mocked(searchLegacyPoints).mockResolvedValueOnce([]);
 
     await retrieve('agent-1', 'query');
 
-    expect(searchPoints).toHaveBeenLastCalledWith(
+    expect(searchLegacyPoints).toHaveBeenLastCalledWith(
       'tenant-1',
+      'agent-1',
       expect.any(Array),
-      {
-        must: [
-          { key: 'agent_id', match: { value: 'agent-1' } },
-          { is_empty: { key: 'index_generation' } },
-        ],
-      },
       5,
+      undefined,
     );
   });
 

@@ -12,8 +12,14 @@ vi.mock('../services/resolve-embedding.js', () => ({
 vi.mock('../services/text-extractor.js', () => ({ extractText: vi.fn() }));
 
 const { embed } = await import('../adapters/embeddings/openai.js');
-const { deleteByIndexGeneration, ensureCollection, getCollectionName, searchPoints, upsertPoints } =
-  await import('../adapters/vectorstore/qdrant.js');
+const {
+  deleteByIndexGeneration,
+  ensureCollection,
+  getCollectionName,
+  searchLegacyPoints,
+  searchPoints,
+  upsertPoints,
+} = await import('../adapters/vectorstore/qdrant.js');
 const { extractText } = await import('../services/text-extractor.js');
 const { cleanupIndexGenerations } = await import('../services/index-cleanup.js');
 const { reindexAgent } = await import('../services/indexer.js');
@@ -42,15 +48,14 @@ async function runReindex(agent: string): Promise<void> {
 }
 
 async function points(agent: string, generation?: string) {
+  if (!generation) return searchLegacyPoints(tenantId!, agent, vector, 10);
   return searchPoints(
     tenantId!,
     vector,
     {
       must: [
         { key: 'agent_id', match: { value: agent } },
-        generation
-          ? { key: 'index_generation', match: { value: generation } }
-          : { is_empty: { key: 'index_generation' } },
+        { key: 'index_generation', match: { value: generation } },
       ],
     },
     10,
@@ -120,15 +125,6 @@ describe('index lifecycle (PostgreSQL and Qdrant)', () => {
       await searchPoints(tenantId, vector, {
         must: [{ key: 'agent_id', match: { value: agentId } }],
       }),
-    ).toHaveLength(1);
-    const legacyFilter = {
-      must: [
-        { key: 'agent_id', match: { value: agentId } },
-        { is_empty: { key: 'index_generation' } },
-      ],
-    };
-    expect(
-      (await qdrant.scroll(getCollectionName(tenantId), { filter: legacyFilter })).points,
     ).toHaveLength(1);
     expect(await points(agentId)).toHaveLength(1);
     expect((await retrieve(agentId, 'question')).map((chunk) => chunk.content)).toEqual([
