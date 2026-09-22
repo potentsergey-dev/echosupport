@@ -116,6 +116,12 @@ describe('index lifecycle (PostgreSQL and Qdrant)', () => {
         },
       },
     ]);
+    expect(
+      await searchPoints(tenantId, vector, {
+        must: [{ key: 'agent_id', match: { value: agentId } }],
+      }),
+    ).toHaveLength(1);
+    expect(await points(agentId)).toHaveLength(1);
     expect((await retrieve(agentId, 'question')).map((chunk) => chunk.content)).toEqual([
       'Legacy knowledge',
     ]);
