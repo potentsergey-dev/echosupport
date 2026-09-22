@@ -193,7 +193,9 @@ export function createUploadIntentService(prisma: PrismaClient, authorize: Autho
             object.key !== intent.finalKey ||
             object.version !== intent.finalVersion ||
             object.sizeBytes !== intent.sizeBytes ||
-            object.contentType !== intent.mimeType
+            object.contentType !== intent.mimeType ||
+            object.promotionSource?.key !== intent.stagingKey ||
+            object.promotionSource.version !== intent.sourceVersion
           )
             throw new UploadIntentError('CONFLICT');
           const document = await tx.document.findUnique({ where: { id: intent.documentId } });
@@ -206,7 +208,9 @@ export function createUploadIntentService(prisma: PrismaClient, authorize: Autho
           !validateUploadedObject(
             { key: intent.finalKey, sizeBytes: intent.sizeBytes, contentType: intent.mimeType },
             object,
-          ).valid
+          ).valid ||
+          object.promotionSource?.key !== intent.stagingKey ||
+          object.promotionSource.version !== intent.sourceVersion
         ) {
           throw new UploadIntentError('INVALID');
         }

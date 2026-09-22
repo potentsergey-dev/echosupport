@@ -46,6 +46,7 @@ async function claimed() {
       version: '9007199254740993',
       sizeBytes: input.sizeBytes,
       contentType: input.mimeType,
+      promotionSource: { key: intent.stagingKey, version: 'source-1' },
     },
   };
 }
@@ -176,6 +177,12 @@ describe('upload lifecycle (PostgreSQL)', () => {
     ).rejects.toMatchObject({ code: 'CONFLICT' });
     await expect(
       service.complete(scope, intent.id, lease.leaseToken!, { ...final, key: 'unrelated' }),
+    ).rejects.toMatchObject({ code: 'INVALID' });
+    await expect(
+      service.complete(scope, intent.id, lease.leaseToken!, {
+        ...final,
+        promotionSource: { key: intent.stagingKey, version: 'replacement' },
+      }),
     ).rejects.toMatchObject({ code: 'INVALID' });
   });
 
