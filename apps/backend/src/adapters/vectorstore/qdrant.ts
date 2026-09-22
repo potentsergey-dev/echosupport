@@ -78,12 +78,28 @@ export async function deleteByIndexGeneration(
   agentId: string,
   generation: string,
 ): Promise<void> {
-  await getClient().delete(getCollectionName(tenantId), {
+  const name = getCollectionName(tenantId);
+  if (!(await collectionExists(name))) return;
+  await getClient().delete(name, {
     wait: true,
     filter: {
       must: [
         { key: 'agent_id', match: { value: agentId } },
         { key: 'index_generation', match: { value: generation } },
+      ],
+    },
+  });
+}
+
+export async function deleteLegacyAgentPoints(tenantId: string, agentId: string): Promise<void> {
+  const name = getCollectionName(tenantId);
+  if (!(await collectionExists(name))) return;
+  await getClient().delete(name, {
+    wait: true,
+    filter: {
+      must: [
+        { key: 'agent_id', match: { value: agentId } },
+        { is_empty: { key: 'index_generation' } },
       ],
     },
   });

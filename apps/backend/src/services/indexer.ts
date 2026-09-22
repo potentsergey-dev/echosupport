@@ -13,7 +13,7 @@ import { chunkText } from './chunker.js';
 import { crawlUrl } from './crawler.js';
 import { sanitizeErrorMessage } from './error-sanitizer.js';
 import { resolveEmbeddingConfig } from './resolve-embedding.js';
-import { createJobLeaseService } from './job-leases.js';
+import { createJobLeaseService, JobLeaseLostError } from './job-leases.js';
 import type { StorageAdapter } from '../contracts/infrastructure.js';
 
 const EMBED_BATCH = 50;
@@ -23,6 +23,19 @@ async function setJobProgress(jobId: string, token: string, progress: number): P
   await leases.withLease(jobId, token, (tx) =>
     tx.job.update({ where: { id: jobId }, data: { progress } }).then(() => undefined),
   );
+}
+
+async function stagePoints(
+  jobId: string,
+  token: string,
+  tenantId: string,
+  points: QdrantPoint[],
+  rows: Prisma.DocumentChunkCreateManyInput[],
+): Promise<void> {
+  await leases.withLease(jobId, token, async (tx) => {
+    await upsertPoints(tenantId, points);
+    await tx.documentChunk.createMany({ data: rows });
+  });
 }
 
 export async function reindexAgent(
@@ -40,6 +53,11 @@ export async function reindexAgent(
 
   await ensureCollection(agent.tenantId);
   const generation = randomUUID();
+  await leases.withLease(jobId, token, async (tx) => {
+    await tx.indexGeneration.create({
+      data: { id: generation, agentId, tenantId: agent.tenantId, jobId, leaseToken: token },
+    });
+  });
   const baseline = agent.activeIndexGeneration;
   const documentResults: Array<{ id: string; chunksCount: number }> = [];
   const sourceResults: Array<{ id: string; pagesIndexed: number }> = [];
@@ -117,11 +135,11 @@ export async function reindexAgent(
           });
         }
 
-        await upsertPoints(agent.tenantId, points);
-        await prisma.documentChunk.createMany({ data: chunkRows });
+        await stagePoints(jobId, token, agent.tenantId, points, chunkRows);
 
         documentResults.push({ id: doc.id, chunksCount: chunks.length });
       } catch (err: unknown) {
+        if (err instanceof JobLeaseLostError) throw err;
         failedItems++;
         failures.push(`${doc.filename}: ${sanitizeErrorMessage(err)}`);
       }
@@ -190,11 +208,11 @@ export async function reindexAgent(
           }
         }
 
-        await upsertPoints(agent.tenantId, points);
-        await prisma.documentChunk.createMany({ data: chunkRows });
+        await stagePoints(jobId, token, agent.tenantId, points, chunkRows);
 
         sourceResults.push({ id: source.id, pagesIndexed: pages.length });
       } catch (err: unknown) {
+        if (err instanceof JobLeaseLostError) throw err;
         failedItems++;
         failures.push(`Source ${source.id}: ${sanitizeErrorMessage(err)}`);
       }
@@ -211,11 +229,39 @@ export async function reindexAgent(
 
     publicationStarted = true;
     await leases.withLease(jobId, token, async (tx) => {
+      const now = (await tx.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`)[0]!
+        .now;
       const updated = await tx.agent.updateMany({
         where: { id: agentId, activeIndexGeneration: baseline },
         data: { activeIndexGeneration: generation },
       });
       if (updated.count !== 1) throw new Error('Agent index changed during reindex');
+
+      const current = await tx.indexGeneration.updateMany({
+        where: { id: generation, jobId, leaseToken: token, publishedAt: null },
+        data: { publishedAt: now },
+      });
+      if (current.count !== 1) throw new Error('Index generation changed during reindex');
+      if (baseline) {
+        const retired = await tx.indexGeneration.updateMany({
+          where: { id: baseline, agentId, retiredAt: null },
+          data: { retiredAt: now },
+        });
+        if (retired.count !== 1) throw new Error('Previous index generation missing');
+      } else {
+        await tx.indexGeneration.create({
+          data: {
+            id: `legacy:${agentId}`,
+            agentId,
+            tenantId: agent.tenantId,
+            jobId,
+            leaseToken: token,
+            legacy: true,
+            publishedAt: now,
+            retiredAt: now,
+          },
+        });
+      }
 
       for (const result of documentResults) {
         const row = await tx.document.updateMany({
@@ -259,17 +305,35 @@ export async function reindexAgent(
         })
         .catch(() => null);
       if (current && current.activeIndexGeneration !== generation) {
-        await deleteByIndexGeneration(agent.tenantId, agentId, generation).catch((error: unknown) =>
-          console.warn(
-            '[indexer] Failed to remove staged Qdrant points:',
-            sanitizeErrorMessage(error),
-          ),
+        let cleaned = true;
+        await deleteByIndexGeneration(agent.tenantId, agentId, generation).catch(
+          (error: unknown) => {
+            cleaned = false;
+            console.warn(
+              '[indexer] Failed to remove staged Qdrant points:',
+              sanitizeErrorMessage(error),
+            );
+          },
         );
         await prisma.documentChunk
           .deleteMany({ where: { agentId, indexGeneration: generation } })
-          .catch((error: unknown) =>
-            console.warn('[indexer] Failed to remove staged chunks:', sanitizeErrorMessage(error)),
-          );
+          .catch((error: unknown) => {
+            cleaned = false;
+            console.warn('[indexer] Failed to remove staged chunks:', sanitizeErrorMessage(error));
+          });
+        if (cleaned) {
+          await prisma.indexGeneration
+            .updateMany({
+              where: { id: generation, publishedAt: null },
+              data: { cleanedAt: new Date() },
+            })
+            .catch((error: unknown) =>
+              console.warn(
+                '[indexer] Failed to mark staged generation clean:',
+                sanitizeErrorMessage(error),
+              ),
+            );
+        }
       }
     }
   }

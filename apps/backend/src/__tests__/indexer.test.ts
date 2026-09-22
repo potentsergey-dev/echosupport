@@ -67,7 +67,7 @@ const mockAgent = {
   id: 'agent-1',
   tenantId: 'tenant-1',
   embeddingModel: 'text-embedding-3-small',
-  activeIndexGeneration: null,
+  activeIndexGeneration: null as string | null,
   documents: [
     {
       id: 'doc-1',
@@ -109,6 +109,10 @@ vi.mock('../db/prisma.js', () => ({
       deleteMany: vi.fn().mockResolvedValue({}),
       createMany: vi.fn().mockResolvedValue({}),
     },
+    indexGeneration: {
+      create: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+    },
     job: {
       update: vi.fn().mockResolvedValue({}),
     },
@@ -131,6 +135,7 @@ describe('indexer — Qdrant payload structure', () => {
     vi.clearAllMocks();
     capturedPoints.length = 0;
     fakeStorage.readFile.mockClear();
+    mockAgent.activeIndexGeneration = null;
     mockAgent.documents[0]!.storageVersion = null;
     vi.mocked(extractText).mockReset();
     vi.mocked(extractText).mockResolvedValue('Hello world. This is a test document.');
@@ -148,6 +153,7 @@ describe('indexer — Qdrant payload structure', () => {
           : [{ now: new Date() }],
       )) as never);
     vi.mocked(prisma.agent.updateMany).mockResolvedValue({ count: 1 } as never);
+    vi.mocked(prisma.indexGeneration.updateMany).mockResolvedValue({ count: 1 } as never);
   });
 
   it('writes full content (not just preview) into Qdrant payload for FILE chunks', async () => {
@@ -246,12 +252,39 @@ describe('indexer — Qdrant payload structure', () => {
       where: { id: 'agent-1', activeIndexGeneration: null },
       data: { activeIndexGeneration: generation },
     });
+    expect(prisma.indexGeneration.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        id: generation,
+        agentId: 'agent-1',
+        jobId: 'job-1',
+        leaseToken: 'lease-1',
+      }),
+    });
+    expect(prisma.indexGeneration.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        id: 'legacy:agent-1',
+        legacy: true,
+        retiredAt: expect.any(Date),
+      }),
+    });
     expect(deleteByIndexGeneration).not.toHaveBeenCalled();
     expect(prisma.documentChunk.deleteMany).toHaveBeenCalledOnce();
     expect(prisma.job.update).toHaveBeenLastCalledWith({
       where: { id: 'job-1' },
       data: { progress: 100 },
     });
+  });
+
+  it('retires the previously published generation in the publication transaction', async () => {
+    mockAgent.activeIndexGeneration = 'old-generation';
+
+    await reindexAgent('agent-1', 'job-1', fakeStorage, 'lease-1');
+
+    expect(prisma.indexGeneration.updateMany).toHaveBeenCalledWith({
+      where: { id: 'old-generation', agentId: 'agent-1', retiredAt: null },
+      data: { retiredAt: expect.any(Date) },
+    });
+    expect(prisma.indexGeneration.create).toHaveBeenCalledTimes(1);
   });
 
   it('does not publish after losing the job lease', async () => {
@@ -263,6 +296,27 @@ describe('indexer — Qdrant payload structure', () => {
       'Job lease lost',
     );
     expect(prisma.agent.updateMany).not.toHaveBeenCalled();
+    expect(deleteByIndexGeneration).not.toHaveBeenCalled();
+  });
+
+  it('does not write staged points after losing the lease', async () => {
+    vi.mocked(prisma.$queryRaw)
+      .mockResolvedValueOnce([
+        { status: 'RUNNING', leaseToken: 'lease-1', leaseExpiresAt: new Date(Date.now() + 60_000) },
+      ] as never)
+      .mockResolvedValueOnce([{ now: new Date() }] as never)
+      .mockResolvedValueOnce([
+        {
+          status: 'RUNNING',
+          leaseToken: 'new-owner',
+          leaseExpiresAt: new Date(Date.now() + 60_000),
+        },
+      ] as never);
+
+    await expect(reindexAgent('agent-1', 'job-1', fakeStorage, 'lease-1')).rejects.toThrow(
+      'Job lease lost',
+    );
+    expect(capturedPoints).toHaveLength(0);
     expect(deleteByIndexGeneration).toHaveBeenCalledOnce();
   });
 

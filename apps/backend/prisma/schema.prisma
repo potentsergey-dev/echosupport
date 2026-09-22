@@ -496,6 +496,25 @@ model Job {
   @@index([status, leaseExpiresAt])
 }
 
+model IndexGeneration {
+  id                    String    @id
+  agentId               String
+  tenantId              String
+  jobId                 String
+  leaseToken            String
+  legacy                Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+  publishedAt           DateTime?
+  retiredAt             DateTime?
+  cleanedAt             DateTime?
+  cleanupToken          String?
+  cleanupLeaseExpiresAt DateTime?
+
+  @@index([cleanedAt, retiredAt])
+  @@index([cleanedAt, createdAt])
+  @@index([agentId])
+}
+
 enum JobType {
   REINDEX_AGENT
   CRAWL_URL
