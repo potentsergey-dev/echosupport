@@ -65,6 +65,13 @@ completion cannot subsequently accept them. Completed documents protect their
 final objects; the returned `deleteFinalObject` is true only for expired intents
 or completed intents whose documents no longer exist.
 
+`createDirectUploadCleanup` provides a bounded pass over due intents. It deletes
+the current staging generation and any separately pinned source generation, and
+deletes a final generation only when its provenance matches the intent. A
+recorded final generation can also be removed if it is no longer current.
+Unexpected final objects remain untouched for investigation. The pass is not
+connected to the worker until the storage capability is configured and enabled.
+
 Use recorded versions, or inspect and validate object provenance for an
 uncommitted promotion, before deleting. Never delete a prefix or a newer object
 generation. `finishCleanup` requires the live cleanup token. Failure leaves
