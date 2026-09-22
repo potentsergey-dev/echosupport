@@ -1,7 +1,9 @@
 # Upload Intent Lifecycle
 
 The optional `createUploadIntentService` persists direct-upload coordination in
-PostgreSQL. It does not issue grants, call an object store or enable upload routes.
+PostgreSQL. `createDirectUploadWorkflow` coordinates grants, content inspection,
+pinned promotion and completion recovery using that service and a
+`DirectUploadStorage` adapter. Neither component enables upload routes.
 Existing multipart uploads keep their current behavior.
 
 ## State and Transactions
@@ -30,6 +32,13 @@ metadata, not a client-supplied object descriptor.
 COMPLETED in one transaction. Concurrent/repeated completion returns the same
 document. A failed transaction leaves the intent recoverable. Deleting the
 document does not allow completion replay to recreate it.
+
+The workflow requires an application-provided `inspectContent` callback. It
+reads the pinned source bytes before recording the version, rejects a changed
+source before promotion, and accepts an existing final object only when its
+provenance matches the recorded source. The database completion transaction
+also requires matching provenance. Route integration must supply content checks
+and enforce MIME, size, quota and expiry policy before issuing grants.
 
 ## Authorization
 
