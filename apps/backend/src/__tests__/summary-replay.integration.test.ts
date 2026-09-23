@@ -4,6 +4,7 @@ import { prisma } from '../db/prisma.js';
 import { chatCompletion } from '../adapters/llm/openrouter.js';
 import { createPrismaJobDispatcher } from '../services/job-dispatcher.js';
 import { summarizeIfNeeded, summarizeSession } from '../services/conversation-summarizer.js';
+import { createJobLeaseService, JobLeaseLostError } from '../services/job-leases.js';
 
 vi.mock('../adapters/llm/openrouter.js', () => ({ chatCompletion: vi.fn() }));
 vi.mock('../services/agent-secrets.js', () => ({
@@ -11,6 +12,7 @@ vi.mock('../services/agent-secrets.js', () => ({
 }));
 
 const dispatcher = createPrismaJobDispatcher(prisma);
+const leases = createJobLeaseService(prisma);
 let tenantId: string;
 let sessionId: string;
 const keys: string[] = [];
@@ -110,6 +112,51 @@ describe('summary replay (PostgreSQL)', () => {
 
     expect((await prisma.session.findUniqueOrThrow({ where: { id: sessionId } })).summary).toBe(
       'Newer result',
+    );
+  });
+
+  it('rejects a summary write after another worker reclaims the expired lease', async () => {
+    const key = `summary-lease:${randomUUID()}`;
+    keys.push(key);
+    const job = await dispatcher.enqueue('SUMMARIZE_SESSION', { sessionId }, { dedupeKey: key });
+    const staleClaim = await leases.claimNext(job.id);
+    expect(staleClaim).not.toBeNull();
+
+    let releaseStale!: (summary: string) => void;
+    let staleEntered!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      staleEntered = resolve;
+    });
+    vi.mocked(chatCompletion)
+      .mockImplementationOnce(
+        () =>
+          new Promise<string>((resolve) => {
+            releaseStale = resolve;
+            staleEntered();
+          }),
+      )
+      .mockResolvedValueOnce('Current worker result');
+
+    const stale = summarizeSession(sessionId, {
+      jobId: job.id,
+      token: staleClaim!.token,
+    });
+    await entered;
+    await prisma.job.update({
+      where: { id: job.id },
+      data: { leaseExpiresAt: new Date(0) },
+    });
+    const currentClaim = await leases.claimNext(job.id);
+    expect(currentClaim).not.toBeNull();
+    await summarizeSession(sessionId, {
+      jobId: job.id,
+      token: currentClaim!.token,
+    });
+
+    releaseStale('Stale worker result');
+    await expect(stale).rejects.toBeInstanceOf(JobLeaseLostError);
+    expect((await prisma.session.findUniqueOrThrow({ where: { id: sessionId } })).summary).toBe(
+      'Current worker result',
     );
   });
 });

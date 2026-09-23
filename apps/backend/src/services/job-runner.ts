@@ -36,7 +36,7 @@ async function processNextJob(storage: Pick<StorageAdapter, 'readFile'>): Promis
         await reindexAgent(agentId, job.id, storage, token);
       } else if (job.type === 'SUMMARIZE_SESSION') {
         const { sessionId } = job.payload as { sessionId: string };
-        await summarizeSession(sessionId);
+        await summarizeSession(sessionId, { jobId: job.id, token });
       } else {
         throw new Error(`Unsupported job type: ${job.type}`);
       }
