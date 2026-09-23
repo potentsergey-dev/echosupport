@@ -45,6 +45,10 @@ export async function ensureCollection(tenantId: string): Promise<void> {
     field_name: 'source_type',
     field_schema: 'keyword',
   });
+  await getClient().createPayloadIndex(name, {
+    field_name: 'index_generation',
+    field_schema: 'keyword',
+  });
 }
 
 export interface QdrantPoint {
@@ -67,6 +71,84 @@ export async function deleteByAgentId(tenantId: string, agentId: string): Promis
     wait: true,
     filter: { must: [{ key: 'agent_id', match: { value: agentId } }] },
   });
+}
+
+export async function deleteByIndexGeneration(
+  tenantId: string,
+  agentId: string,
+  generation: string,
+): Promise<void> {
+  const name = getCollectionName(tenantId);
+  if (!(await collectionExists(name))) return;
+  await getClient().delete(name, {
+    wait: true,
+    filter: {
+      must: [
+        { key: 'agent_id', match: { value: agentId } },
+        { key: 'index_generation', match: { value: generation } },
+      ],
+    },
+  });
+}
+
+export async function deleteLegacyAgentPoints(tenantId: string, agentId: string): Promise<void> {
+  const name = getCollectionName(tenantId);
+  if (!(await collectionExists(name))) return;
+  for await (const ids of legacyPointIds(name, agentId)) {
+    if (ids.length > 0) await getClient().delete(name, { wait: true, points: ids });
+  }
+}
+
+function isLegacyGeneration(payload: Record<string, unknown> | null | undefined): boolean {
+  const generation = payload?.['index_generation'];
+  return generation == null || (Array.isArray(generation) && generation.length === 0);
+}
+
+async function* legacyPointIds(
+  name: string,
+  agentId: string,
+  sourceType?: 'FILE' | 'URL',
+): AsyncGenerator<Array<string | number>> {
+  let offset: string | number | Record<string, unknown> | undefined;
+  do {
+    const page = await getClient().scroll(name, {
+      filter: { must: [{ key: 'agent_id', match: { value: agentId } }] },
+      limit: 256,
+      with_payload: ['index_generation', 'source_type'],
+      with_vector: false,
+      ...(offset == null ? {} : { offset }),
+    });
+    yield page.points
+      .filter(
+        (point) =>
+          isLegacyGeneration(point.payload) &&
+          (!sourceType || point.payload?.['source_type'] === sourceType),
+      )
+      .map((point) => point.id);
+    offset = page.next_page_offset ?? undefined;
+  } while (offset != null);
+}
+
+export async function searchLegacyPoints(
+  tenantId: string,
+  agentId: string,
+  vector: number[],
+  limit = 5,
+  sourceType?: 'FILE' | 'URL',
+): Promise<QdrantSearchPoint[]> {
+  const name = getCollectionName(tenantId);
+  const results: QdrantSearchPoint[] = [];
+  for await (const ids of legacyPointIds(name, agentId, sourceType)) {
+    if (ids.length === 0) continue;
+    const response = await getClient().query(name, {
+      query: vector,
+      filter: { must: [{ key: 'agent_id', match: { value: agentId } }, { has_id: ids }] },
+      limit,
+      with_payload: true,
+    });
+    results.push(...response.points);
+  }
+  return results.sort((a, b) => b.score - a.score).slice(0, limit);
 }
 
 export async function deleteByDocumentId(tenantId: string, documentId: string): Promise<void> {

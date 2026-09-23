@@ -18,6 +18,7 @@
     "test": "vitest run",
     "test:integration:check-db": "node scripts/assert-test-database.mjs",
     "test:integration": "vitest run --config vitest.integration.config.mts",
+    "test:integration:qdrant": "vitest run --config vitest.qdrant.config.mts",
     "test:integration:ws": "vitest run --config vitest.integration.config.mts src/__tests__/websocket-security.integration.test.ts",
     "test:coverage": "vitest run --coverage"
   },

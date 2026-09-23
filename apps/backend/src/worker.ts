@@ -2,12 +2,14 @@ import { prisma } from './db/prisma.js';
 import { startCleanupRunner } from './services/cleanup.js';
 import { createCommunityDependencies } from './services/dependencies.js';
 import { createPrismaJobWorkerRunner } from './services/job-runner.js';
+import { startIndexCleanupRunner } from './services/index-cleanup.js';
 import { startOperatorNotifier, stopOperatorNotifier } from './services/operator-notifier.js';
 
 async function main() {
   const deps = createCommunityDependencies();
   const jobRunner = await createPrismaJobWorkerRunner(deps.storage).start();
   const cleanupRunner = startCleanupRunner();
+  const indexCleanupRunner = startIndexCleanupRunner();
   await startOperatorNotifier();
 
   let shuttingDown = false;
@@ -17,6 +19,7 @@ async function main() {
     console.info({ signal }, 'Worker shutdown started');
     await jobRunner.stop();
     clearInterval(cleanupRunner);
+    await indexCleanupRunner.stop();
     stopOperatorNotifier();
     await prisma.$disconnect();
     console.info('Worker shutdown completed');

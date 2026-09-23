@@ -2,10 +2,9 @@ import { defineConfig } from 'vitest/config';
 
 export default defineConfig({
   test: {
-    include: ['src/**/*.integration.test.ts'],
-    exclude: ['src/**/*.qdrant.integration.test.ts'],
+    include: ['src/**/*.qdrant.integration.test.ts'],
     setupFiles: ['./vitest.integration.setup.mts'],
-    testTimeout: 20_000,
+    testTimeout: 60_000,
     hookTimeout: 20_000,
     fileParallelism: false,
   },

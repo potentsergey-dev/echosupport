@@ -107,6 +107,14 @@ SMOKE_BASE_URL=http://localhost:8080 pnpm smoke:install
 
 For an Internet deployment, replace `http://localhost:8080` with `PUBLIC_BASE_URL`.
 
+## Job Lease Rollout
+
+When upgrading from a pre-lease worker, stop all old worker processes before
+starting the new worker. Apply the additive `Job` lease migration once. The new
+worker reclaims legacy `RUNNING` jobs without a lease and expired leases; an
+old worker still processing during this handover could duplicate work. Keep
+Cloud Tasks disabled until reindex and summarization effects are replay-safe.
+
 ## Restore PostgreSQL
 
 Restoring PostgreSQL overwrites database state. Stop the app first so no requests write
