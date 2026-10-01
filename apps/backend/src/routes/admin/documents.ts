@@ -2,6 +2,7 @@ import type { FastifyPluginAsync } from 'fastify';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
+import { isPublicHttpUrl } from '../../services/public-http.js';
 import { prisma } from '../../db/prisma.js';
 import { env } from '../../config/env.js';
 import { deleteByDocumentId, deleteBySourceId } from '../../adapters/vectorstore/qdrant.js';
@@ -26,38 +27,6 @@ const AddSourceSchema = z.object({
   includePaths: z.array(z.string()).default([]),
   excludePaths: z.array(z.string()).default([]),
 });
-
-function isPrivateIpLiteral(hostname: string): boolean {
-  const host = hostname.replace(/^\[(.*)\]$/, '$1').toLowerCase();
-  if (host === 'localhost' || host.endsWith('.localhost')) return true;
-  if (host === '::1' || host === '0:0:0:0:0:0:0:1') return true;
-  if (host.startsWith('fe80:') || host.startsWith('fc') || host.startsWith('fd')) return true;
-
-  const parts = host.split('.');
-  if (parts.length !== 4) return false;
-  const octets = parts.map((part) => Number(part));
-  if (octets.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return false;
-  const [a, b] = octets as [number, number, number, number];
-
-  return (
-    a === 10 ||
-    a === 127 ||
-    a === 0 ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168)
-  );
-}
-
-function isPublicHttpUrl(value: string): boolean {
-  try {
-    const url = new URL(value);
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
-    return !isPrivateIpLiteral(url.hostname);
-  } catch {
-    return false;
-  }
-}
 
 async function assertAgentOwnership(tenantId: string, agentId: string) {
   const agent = await prisma.agent.findFirst({ where: { id: agentId, tenantId } });
@@ -161,7 +130,12 @@ const documentRoutes: FastifyPluginAsync = async (fastify) => {
         .send({ error: 'Storage adapter cannot delete pinned object versions' });
     }
 
-    await deleteByDocumentId(agent.tenantId, docId);
+    try {
+      await deleteByDocumentId(agent.tenantId, docId);
+    } catch (error) {
+      req.log.warn({ err: error, docId }, 'Document vector cleanup failed during delete');
+      return reply.status(503).send({ error: 'Document vector cleanup unavailable' });
+    }
     await prisma.documentChunk.deleteMany({ where: { documentId: docId } });
     if (doc.storageVersion) {
       await fastify.deps.storage.deleteFileVersion!(doc.storagePath, doc.storageVersion);

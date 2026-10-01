@@ -78,6 +78,7 @@ import jobRoutes from '../routes/admin/jobs.js';
 import documentRoutes from '../routes/admin/documents.js';
 import internalCronRoutes from '../routes/internal/cron.js';
 import { prisma } from '../db/prisma.js';
+import { deleteByDocumentId } from '../adapters/vectorstore/qdrant.js';
 
 async function buildTestServer() {
   const app = Fastify({ logger: false });
@@ -309,6 +310,37 @@ describe('knowledge routes — indexing boundaries', () => {
 });
 
 describe('versioned document deletion', () => {
+  it('keeps the document and stored file when Qdrant cleanup fails', async () => {
+    const app = await buildTestServer();
+    await app.ready();
+    vi.mocked(prisma.agent.findFirst).mockResolvedValueOnce({
+      id: 'agent-1',
+      tenantId: 'tenant-1',
+    } as never);
+    vi.mocked(prisma.document.findFirst).mockResolvedValueOnce({
+      id: 'doc-1',
+      agentId: 'agent-1',
+      storagePath: 'document',
+      storageVersion: null,
+    } as never);
+    vi.mocked(deleteByDocumentId).mockRejectedValueOnce(new Error('Qdrant unavailable'));
+    vi.mocked(prisma.document.delete).mockClear();
+    vi.mocked(prisma.documentChunk.deleteMany).mockClear();
+    vi.mocked(app.deps.storage.deleteFile).mockClear();
+    try {
+      const response = await app.inject({
+        method: 'DELETE',
+        url: '/api/v1/admin/agents/agent-1/documents/doc-1',
+        headers: { Authorization: `Bearer ${signToken(app)}` },
+      });
+      expect(response.statusCode).toBe(503);
+      expect(prisma.document.delete).not.toHaveBeenCalled();
+      expect(prisma.documentChunk.deleteMany).not.toHaveBeenCalled();
+      expect(app.deps.storage.deleteFile).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
   it.each(['supported', 'unsupported', 'storage-failure'] as const)(
     'handles %s adapters without deleting a different version',
     async (mode) => {

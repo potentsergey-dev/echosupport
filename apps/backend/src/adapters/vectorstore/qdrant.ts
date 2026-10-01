@@ -28,27 +28,28 @@ async function collectionExists(name: string): Promise<boolean> {
   return collections.some((c) => c.name === name);
 }
 
+async function ensurePayloadIndex(name: string, field: string): Promise<void> {
+  const collection = await getClient().getCollection(name);
+  if (collection.payload_schema?.[field]) return;
+  await getClient().createPayloadIndex(name, {
+    field_name: field,
+    field_schema: 'keyword',
+    wait: true,
+  });
+}
+
 export async function ensureCollection(tenantId: string): Promise<void> {
   const name = getCollectionName(tenantId);
-  if (await collectionExists(name)) return;
+  if (!(await collectionExists(name))) {
+    await getClient().createCollection(name, {
+      vectors: { size: VECTOR_SIZE, distance: 'Cosine' },
+      optimizers_config: { default_segment_number: 2 },
+    });
+  }
 
-  await getClient().createCollection(name, {
-    vectors: { size: VECTOR_SIZE, distance: 'Cosine' },
-    optimizers_config: { default_segment_number: 2 },
-  });
-
-  await getClient().createPayloadIndex(name, {
-    field_name: 'agent_id',
-    field_schema: 'keyword',
-  });
-  await getClient().createPayloadIndex(name, {
-    field_name: 'source_type',
-    field_schema: 'keyword',
-  });
-  await getClient().createPayloadIndex(name, {
-    field_name: 'index_generation',
-    field_schema: 'keyword',
-  });
+  for (const field of ['agent_id', 'source_type', 'index_generation', 'document_id', 'source_id']) {
+    await ensurePayloadIndex(name, field);
+  }
 }
 
 export interface QdrantPoint {
@@ -154,6 +155,7 @@ export async function searchLegacyPoints(
 export async function deleteByDocumentId(tenantId: string, documentId: string): Promise<void> {
   const name = getCollectionName(tenantId);
   if (!(await collectionExists(name))) return;
+  await ensurePayloadIndex(name, 'document_id');
   await getClient().delete(name, {
     wait: true,
     filter: { must: [{ key: 'document_id', match: { value: documentId } }] },
@@ -163,6 +165,7 @@ export async function deleteByDocumentId(tenantId: string, documentId: string): 
 export async function deleteBySourceId(tenantId: string, sourceId: string): Promise<void> {
   const name = getCollectionName(tenantId);
   if (!(await collectionExists(name))) return;
+  await ensurePayloadIndex(name, 'source_id');
   await getClient().delete(name, {
     wait: true,
     filter: { must: [{ key: 'source_id', match: { value: sourceId } }] },

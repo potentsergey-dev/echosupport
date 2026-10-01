@@ -14,6 +14,46 @@ const validEnv = {
 };
 
 describe('environment validation', () => {
+  describe('DB_POOL_MAX', () => {
+    it('preserves the existing pool default', () => {
+      expect(parseEnv(validEnv).DB_POOL_MAX).toBe(10);
+    });
+
+    it('accepts a bounded pool size', () => {
+      expect(parseEnv({ ...validEnv, DB_POOL_MAX: '3' }).DB_POOL_MAX).toBe(3);
+    });
+
+    it.each(['0', '51', '1.5', 'invalid'])('rejects invalid pool size %s', (value) => {
+      expect(() => parseEnv({ ...validEnv, DB_POOL_MAX: value })).toThrow();
+    });
+  });
+
+  describe('trusted database TLS', () => {
+    const ca = '-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----';
+
+    it('accepts a certificate and server name together', () => {
+      const parsed = parseEnv({
+        ...validEnv,
+        DB_SSL_CA_PEM: ca,
+        DB_SSL_SERVERNAME: 'db.internal',
+      });
+      expect(parsed.DB_SSL_CA_PEM).toBe(ca);
+      expect(parsed.DB_SSL_SERVERNAME).toBe('db.internal');
+    });
+
+    it('rejects partial configuration and non-PEM input', () => {
+      expect(() => parseEnv({ ...validEnv, DB_SSL_CA_PEM: ca })).toThrow();
+      expect(() => parseEnv({ ...validEnv, DB_SSL_SERVERNAME: 'db.internal' })).toThrow();
+      expect(() =>
+        parseEnv({
+          ...validEnv,
+          DB_SSL_CA_PEM: 'invalid',
+          DB_SSL_SERVERNAME: 'db.internal',
+        }),
+      ).toThrow();
+    });
+  });
+
   it('accepts explicit production configuration with normalized admin origins', () => {
     expect(parseEnv(validEnv)).toMatchObject({
       NODE_ENV: 'production',

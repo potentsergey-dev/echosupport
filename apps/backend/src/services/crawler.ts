@@ -1,3 +1,6 @@
+import { fetchPublicHtml, isPublicHttpUrl } from './public-http.js';
+import { parseCrawlPage } from './crawler-parser.js';
+
 export interface CrawlResult {
   url: string;
   text: string;
@@ -27,13 +30,14 @@ export async function crawlUrl(startUrl: string, opts: CrawlOptions = {}): Promi
   const maxDepth = opts.maxDepth ?? 1;
   const includePaths = opts.includePaths ?? [];
   const excludePaths = opts.excludePaths ?? [];
-  const maxPages = opts.maxPages ?? 100;
-
-  const { JSDOM } = await import('jsdom');
-  const { Readability } = await import('@mozilla/readability');
+  const maxPages = Math.max(1, Math.min(opts.maxPages ?? 100, 100));
+  const deadline = Date.now() + 60_000;
+  const crawlSignal = AbortSignal.timeout(60_000);
+  let remainingBytes = 10 * 1024 * 1024;
 
   let baseOrigin: string;
   try {
+    if (!isPublicHttpUrl(startUrl)) throw new Error('Crawler destination is not allowed');
     baseOrigin = new URL(startUrl).origin;
   } catch {
     return [];
@@ -43,7 +47,13 @@ export async function crawlUrl(startUrl: string, opts: CrawlOptions = {}): Promi
   const results: CrawlResult[] = [];
   const queue: Array<[string, number]> = [[startUrl, 0]];
 
-  while (queue.length > 0 && results.length < maxPages) {
+  const queued = new Set([startUrl.split('#')[0] ?? '']);
+  while (
+    queue.length > 0 &&
+    visited.size < maxPages &&
+    remainingBytes > 0 &&
+    Date.now() < deadline
+  ) {
     const item = queue.shift();
     if (!item) break;
     const [currentUrl, depth] = item;
@@ -63,46 +73,34 @@ export async function crawlUrl(startUrl: string, opts: CrawlOptions = {}): Promi
     if (!shouldCrawl(parsedUrl.pathname, includePaths, excludePaths)) continue;
 
     try {
-      const response = await fetch(currentUrl, {
-        headers: { 'User-Agent': 'EchoSupport-Crawler/1.0' },
-        signal: AbortSignal.timeout(15_000),
+      const page = await fetchPublicHtml(currentUrl, {
+        origin: baseOrigin,
+        signal: AbortSignal.any([crawlSignal, AbortSignal.timeout(15_000)]),
+        maxBytes: Math.min(2 * 1024 * 1024, remainingBytes),
+        onBytes: (bytes) => {
+          remainingBytes -= bytes;
+        },
       });
+      if (!page) continue;
+      const { html } = page;
 
-      if (!response.ok) continue;
-
-      const contentType = response.headers.get('content-type') ?? '';
-      if (!contentType.includes('text/html')) continue;
-
-      const html = await response.text();
-
-      // Extract links before Readability mutates the DOM
-      const linkDom = new JSDOM(html, { url: currentUrl });
-      const linkNodes = linkDom.window.document.querySelectorAll('a[href]');
-      const links: string[] = [];
-      for (const node of Array.from(linkNodes)) {
-        const href = node.getAttribute('href');
-        if (!href) continue;
-        try {
-          links.push(new URL(href, currentUrl).toString().split('#')[0] ?? '');
-        } catch {
-          // ignore invalid URLs
-        }
-      }
-
-      // Extract readable text
-      const textDom = new JSDOM(html, { url: currentUrl });
-      const reader = new Readability(textDom.window.document);
-      const article = reader.parse();
-      const text = article?.textContent?.trim() ?? '';
+      const { text, links } = await parseCrawlPage(html, page.url, crawlSignal);
 
       if (text.length > 0) {
-        results.push({ url: currentUrl, text });
+        results.push({ url: page.url, text });
       }
 
       // Enqueue child links
       if (depth < maxDepth) {
         for (const link of links) {
-          if (!visited.has(link)) {
+          if (
+            new URL(link).origin === baseOrigin &&
+            isPublicHttpUrl(link) &&
+            !visited.has(link) &&
+            !queued.has(link) &&
+            queued.size < 1000
+          ) {
+            queued.add(link);
             queue.push([link, depth + 1]);
           }
         }

@@ -8,6 +8,43 @@ function requestWithCookie(cookie: string | undefined): FastifyRequest {
 }
 
 describe('PrismaSessionAuthWorkspaceAdapter', () => {
+  it('validates stream access without refreshing activity or hiding idle expiry', async () => {
+    let now = new Date('2026-08-19T12:00:00.000Z');
+    const update = vi.fn().mockResolvedValue({});
+    const adapter = new PrismaSessionAuthWorkspaceAdapter(
+      {
+        authSession: {
+          findUnique: vi.fn().mockResolvedValue({
+            id: 'session',
+            userId: 'user',
+            tenantId: 'tenant',
+            revokedAt: null,
+            expiresAt: new Date('2026-08-20'),
+            lastSeenAt: new Date('2026-08-19T11:59:30Z'),
+            user: { id: 'user', email: 'a@example.com', status: 'ACTIVE' },
+            selectedMembership: {
+              id: 'membership',
+              userId: 'user',
+              tenantId: 'tenant',
+              role: 'OWNER',
+              status: 'ACTIVE',
+            },
+          }),
+          update,
+        },
+      } as never,
+      { cookieName: 'session', idleTtlMs: 60_000, now: () => now },
+    );
+    await expect(
+      adapter.authenticateRequest(requestWithCookie('session=token'), { touchSession: false }),
+    ).resolves.toMatchObject({ userId: 'user' });
+    expect(update).not.toHaveBeenCalled();
+    now = new Date('2026-08-19T12:00:31Z');
+    await expect(
+      adapter.authenticateRequest(requestWithCookie('session=token'), { touchSession: false }),
+    ).rejects.toThrow('idle timeout');
+    expect(update).not.toHaveBeenCalledWith(expect.objectContaining({ data: { lastSeenAt: now } }));
+  });
   it('authenticates an opaque cookie session through an active membership', async () => {
     const now = new Date('2026-08-19T12:00:00.000Z');
     const update = vi.fn().mockResolvedValue({});
