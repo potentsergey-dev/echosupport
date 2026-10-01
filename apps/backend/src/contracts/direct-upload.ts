@@ -6,6 +6,7 @@ export interface UploadObject {
 export interface UploadMetadata extends UploadObject {
   sizeBytes: number;
   contentType: string;
+  promotionSource?: UploadObject;
 }
 
 export interface UploadExpectation {
