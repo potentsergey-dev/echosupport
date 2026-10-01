@@ -1,4 +1,5 @@
 import fp from 'fastify-plugin';
+import { SessionStoreUnavailableError } from '../services/session-auth.js';
 import type { FastifyPluginAsync, FastifyRequest, FastifyReply } from 'fastify';
 import type { WorkspaceAuthContext } from '../contracts/infrastructure.js';
 
@@ -19,6 +20,7 @@ declare module 'fastify' {
     /** Require one of the specified roles after authentication. */
     requireRole: (
       roles: string[],
+      options?: { touchSession?: boolean },
     ) => (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
   }
 }
@@ -42,7 +44,10 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
       try {
         const context = await fastify.deps.authWorkspace.authenticateRequest(request);
         request.user = toFastifyUser(context);
-      } catch {
+      } catch (error) {
+        if (error instanceof SessionStoreUnavailableError) {
+          return reply.status(503).send({ error: 'Authentication temporarily unavailable' });
+        }
         return reply.status(401).send({ error: 'Unauthorized' });
       }
     },
@@ -59,20 +64,28 @@ const authPlugin: FastifyPluginAsync = async (fastify) => {
         }
       }
       try {
-        const context = await fastify.deps.authWorkspace.authenticateRequest(request);
+        const context = await fastify.deps.authWorkspace.authenticateRequest(request, {
+          touchSession: false,
+        });
         request.user = toFastifyUser(context);
-      } catch {
+      } catch (error) {
+        if (error instanceof SessionStoreUnavailableError) {
+          return reply.status(503).send({ error: 'Authentication temporarily unavailable' });
+        }
         return reply.status(401).send({ error: 'Unauthorized' });
       }
     },
   );
 
-  fastify.decorate('requireRole', (roles: string[]) => {
+  fastify.decorate('requireRole', (roles: string[], options?: { touchSession?: boolean }) => {
     return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
       try {
-        const context = await fastify.deps.authWorkspace.authenticateRequest(request);
+        const context = await fastify.deps.authWorkspace.authenticateRequest(request, options);
         request.user = toFastifyUser(context);
-      } catch {
+      } catch (error) {
+        if (error instanceof SessionStoreUnavailableError) {
+          return reply.status(503).send({ error: 'Authentication temporarily unavailable' });
+        }
         return reply.status(401).send({ error: 'Unauthorized' });
       }
       if (!roles.includes(request.user.role)) {

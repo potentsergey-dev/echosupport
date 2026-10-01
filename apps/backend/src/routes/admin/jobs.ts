@@ -4,10 +4,49 @@ import { prisma } from '../../db/prisma.js';
 const TERMINAL_STATUSES = new Set(['DONE', 'FAILED', 'CANCELLED']);
 
 const jobRoutes: FastifyPluginAsync = async (fastify) => {
+  // Discover on the server so reloads and another browser can recover observation.
+  fastify.get(
+    '/agents/:id/indexing-job',
+    {
+      preHandler: [fastify.requireRole(['OWNER', 'ADMIN'], { touchSession: false })],
+    },
+    async (req, reply) => {
+      const { id: agentId } = req.params as { id: string };
+      const agent = await prisma.agent.findFirst({
+        where: { id: agentId, tenantId: req.user.tenantId },
+        select: { id: true },
+      });
+      if (!agent) return reply.status(404).send({ error: 'Agent not found' });
+      const selection = {
+        id: true,
+        type: true,
+        agentId: true,
+        status: true,
+        progress: true,
+        errorMessage: true,
+        scheduledAt: true,
+        startedAt: true,
+        finishedAt: true,
+      } as const;
+      const active = await prisma.job.findFirst({
+        where: { agentId, type: 'REINDEX_AGENT', status: { in: ['PENDING', 'RUNNING'] } },
+        orderBy: [{ scheduledAt: 'desc' }, { id: 'desc' }],
+        select: selection,
+      });
+      const job =
+        active ??
+        (await prisma.job.findFirst({
+          where: { agentId, type: 'REINDEX_AGENT' },
+          orderBy: [{ scheduledAt: 'desc' }, { id: 'desc' }],
+          select: selection,
+        }));
+      return reply.header('Cache-Control', 'no-store').send(job);
+    },
+  );
   // ── GET /admin/jobs/:jobId ─────────────────────────────────────────────────
   fastify.get(
     '/jobs/:jobId',
-    { preHandler: [fastify.requireRole(['OWNER', 'ADMIN'])] },
+    { preHandler: [fastify.requireRole(['OWNER', 'ADMIN'], { touchSession: false })] },
     async (req, reply) => {
       const { jobId } = req.params as { jobId: string };
 
@@ -35,7 +74,7 @@ const jobRoutes: FastifyPluginAsync = async (fastify) => {
       });
       if (!agent) return reply.status(404).send({ error: 'Job not found' });
 
-      return reply.send(job);
+      return reply.header('Cache-Control', 'no-store').send(job);
     },
   );
 
@@ -58,6 +97,11 @@ const jobRoutes: FastifyPluginAsync = async (fastify) => {
       const { jobId } = req.params as { jobId: string };
 
       // Tenant isolation check BEFORE hijacking the connection
+      const initialAccess = {
+        userId: req.user.sub,
+        tenantId: req.user.tenantId,
+        membershipId: req.user.membershipId,
+      };
       const jobCheck = await prisma.job.findUnique({
         where: { id: jobId },
         select: { agentId: true },
@@ -82,10 +126,20 @@ const jobRoutes: FastifyPluginAsync = async (fastify) => {
       raw.write('\n');
 
       const send = (event: string, data: unknown): void => {
-        raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        if (!closed) raw.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
       };
 
+      let closed = false;
+      let polling = false;
+      const close = () => {
+        if (closed) return;
+        closed = true;
+        clearInterval(timer);
+        raw.end();
+      };
       const timer = setInterval(() => {
+        if (closed || polling) return;
+        polling = true;
         void (async () => {
           try {
             const job = await prisma.job.findUnique({
@@ -93,10 +147,22 @@ const jobRoutes: FastifyPluginAsync = async (fastify) => {
               select: { id: true, status: true, progress: true, errorMessage: true },
             });
 
+            // Streams revalidate access without extending the session idle timeout.
+            const access = await fastify.deps.authWorkspace.authenticateRequest(req, {
+              touchSession: false,
+            });
+            if (
+              access.userId !== initialAccess.userId ||
+              access.tenantId !== initialAccess.tenantId ||
+              access.membershipId !== initialAccess.membershipId ||
+              !['OWNER', 'ADMIN'].includes(access.role)
+            ) {
+              close();
+              return;
+            }
+            if (closed) return;
             if (!job) {
-              send('error', { message: 'Job not found' });
-              clearInterval(timer);
-              raw.end();
+              close();
               return;
             }
 
@@ -104,18 +170,17 @@ const jobRoutes: FastifyPluginAsync = async (fastify) => {
 
             if (TERMINAL_STATUSES.has(job.status)) {
               send('done', { jobId: job.id, status: job.status, errorMessage: job.errorMessage });
-              clearInterval(timer);
-              raw.end();
+              close();
             }
           } catch {
-            send('error', { message: 'Internal error' });
-            clearInterval(timer);
-            raw.end();
+            close();
+          } finally {
+            polling = false;
           }
         })();
       }, 1_000);
 
-      req.raw.on('close', () => clearInterval(timer));
+      raw.on('close', close);
     },
   );
 };

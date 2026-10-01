@@ -62,7 +62,10 @@ export interface WorkspaceAuthContext {
 }
 
 export interface AuthWorkspaceAdapter {
-  authenticateRequest(request: FastifyRequest): Promise<WorkspaceAuthContext>;
+  authenticateRequest(
+    request: FastifyRequest,
+    options?: { touchSession?: boolean },
+  ): Promise<WorkspaceAuthContext>;
   assertWorkspaceAccess(context: WorkspaceAuthContext, workspaceId: string): Promise<void>;
 }
 

@@ -17,6 +17,7 @@ import type {
   Service,
   Appointment,
   BootstrapContext,
+  Job,
 } from '../types';
 
 const BASE_URL = (import.meta.env['VITE_API_URL'] as string | undefined) ?? '';
@@ -226,6 +227,19 @@ export function deleteSource(agentId: string, sourceId: string): Promise<void> {
 
 export function triggerReindex(agentId: string): Promise<{ jobId: string }> {
   return request(`/admin/agents/${agentId}/reindex`, { method: 'POST' });
+}
+
+export function getJob(jobId: string, signal?: AbortSignal): Promise<Job> {
+  return request(`/admin/jobs/${jobId}`, { signal: signal ?? null });
+}
+
+export function getJobStreamUrl(jobId: string): string {
+  const token = getToken();
+  return `${BASE_URL}/api/v1/admin/jobs/${encodeURIComponent(jobId)}/stream${token ? `?token=${encodeURIComponent(token)}` : ''}`;
+}
+
+export function getLatestIndexingJob(agentId: string): Promise<Job | null> {
+  return request(`/admin/agents/${agentId}/indexing-job`);
 }
 
 // ── Sessions ─────────────────────────────────────────────────────────────────

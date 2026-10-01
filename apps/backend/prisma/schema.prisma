@@ -494,6 +494,7 @@ model Job {
 
   @@index([status, scheduledAt])
   @@index([status, leaseExpiresAt])
+  @@index([agentId, type, scheduledAt])
 }
 
 model IndexGeneration {

@@ -15,6 +15,9 @@ export const envSchema = z
     PORT: z.coerce.number().int().positive().default(3000),
     HOST: z.string().default('0.0.0.0'),
     DATABASE_URL: z.string().min(1),
+    DB_POOL_MAX: z.coerce.number().int().min(1).max(50).default(10),
+    DB_SSL_CA_PEM: z.string().optional(),
+    DB_SSL_SERVERNAME: z.string().optional(),
     JWT_SECRET: z.string().min(32),
     MASTER_ENCRYPTION_KEY: z.string().regex(/^[a-fA-F0-9]{64}$/, {
       message: 'must be exactly 64 hexadecimal characters',
@@ -43,6 +46,21 @@ export const envSchema = z
     CRON_SECRET: z.string().min(32).optional(),
   })
   .superRefine((value, ctx) => {
+    if (Boolean(value.DB_SSL_CA_PEM) !== Boolean(value.DB_SSL_SERVERNAME)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DB_SSL_CA_PEM'],
+        message: 'DB_SSL_CA_PEM and DB_SSL_SERVERNAME must be set together',
+      });
+    }
+    if (value.DB_SSL_CA_PEM && !value.DB_SSL_CA_PEM.includes('-----BEGIN CERTIFICATE-----')) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['DB_SSL_CA_PEM'],
+        message: 'must contain a PEM certificate',
+      });
+    }
+
     for (const [key, candidate] of Object.entries({
       JWT_SECRET: value.JWT_SECRET,
       MASTER_ENCRYPTION_KEY: value.MASTER_ENCRYPTION_KEY,

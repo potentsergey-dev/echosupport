@@ -16,6 +16,7 @@ import {
   addSource,
   deleteSource,
   triggerReindex,
+  getLatestIndexingJob,
   updateAgent,
   getAgent,
 } from '../lib/api';
@@ -24,6 +25,7 @@ import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Badge } from '../components/ui/Badge';
 import { formatBytes } from '../lib/utils';
+import { ReindexProgress, type JobResult } from '../components/ReindexProgress';
 import type { Document, KnowledgeSource, DocumentStatus, SourcePriority } from '../types';
 
 // ── Status badge ─────────────────────────────────────────────────────────────
@@ -43,79 +45,6 @@ function StatusBadge({ status }: { status: DocumentStatus }) {
 }
 
 // ── Reindex progress ──────────────────────────────────────────────────────────
-
-function ReindexProgress({
-  jobId,
-  onDone,
-}: {
-  jobId: string;
-  onDone: (result: { status: string; errorMessage?: string }) => void;
-}) {
-  const [progress, setProgress] = useState(0);
-  const [status, setStatus] = useState('RUNNING');
-  const [errorMsg, setErrorMsg] = useState('');
-
-  // Poll via SSE
-  useEffect(() => {
-    const apiBase = (import.meta.env['VITE_API_URL'] as string | undefined) ?? '';
-    const token = localStorage.getItem('es_admin_token') ?? '';
-    const url = `${apiBase}/api/v1/admin/jobs/${jobId}/stream`;
-    const es = new EventSource(url + `?token=${encodeURIComponent(token)}`);
-
-    es.addEventListener('progress', (e) => {
-      const data = JSON.parse((e as MessageEvent<string>).data) as {
-        progress: number;
-        status: string;
-      };
-      setProgress(data.progress);
-      setStatus(data.status);
-    });
-
-    es.addEventListener('done', (e) => {
-      const data = JSON.parse((e as MessageEvent<string>).data) as {
-        status: string;
-        errorMessage?: string;
-      };
-      setStatus(data.status);
-      if (data.errorMessage) setErrorMsg(data.errorMessage);
-      es.close();
-      onDone(data);
-    });
-
-    es.addEventListener('error', () => {
-      es.close();
-      const message = 'Ошибка подключения к SSE';
-      setErrorMsg(message);
-      onDone({ status: 'FAILED', errorMessage: message });
-    });
-
-    return () => es.close();
-  }, [jobId, onDone]);
-
-  return (
-    <div className="rounded-xl border border-gray-200 bg-white p-4">
-      <div className="mb-2 flex items-center justify-between text-sm">
-        <span className="font-medium text-gray-700">Индексация…</span>
-        <span className="text-gray-500">{progress}%</span>
-      </div>
-      <div className="h-2 w-full overflow-hidden rounded-full bg-gray-200">
-        <div
-          className="h-full rounded-full bg-indigo-600 transition-all duration-500"
-          style={{ width: `${progress}%` }}
-        />
-      </div>
-      {errorMsg && <p className="mt-2 text-sm text-red-600">{errorMsg}</p>}
-      {status === 'DONE' && (
-        <p className="mt-2 text-sm font-medium text-green-600">Индексация завершена ✓</p>
-      )}
-      {status === 'FAILED' && (
-        <p className="mt-2 text-sm font-medium text-red-600">
-          Индексация завершилась с ошибкой. Проверьте элементы ниже.
-        </p>
-      )}
-    </div>
-  );
-}
 
 // ── Files block ───────────────────────────────────────────────────────────────
 
@@ -407,6 +336,30 @@ export function KnowledgePage({ agentId }: { agentId: string }) {
   const [jobId, setJobId] = useState<string | null>(null);
   const [reindexing, setReindexing] = useState(false);
 
+  const {
+    data: latestJob,
+    isPending: discoveringJob,
+    isError: discoveryFailed,
+  } = useQuery({
+    queryKey: ['indexing-job', agentId],
+    queryFn: () => getLatestIndexingJob(agentId),
+    refetchInterval: 5_000,
+  });
+  const activeJobId =
+    jobId ?? (latestJob && ['PENDING', 'RUNNING'].includes(latestJob.status) ? latestJob.id : null);
+
+  useEffect(() => {
+    if (latestJob && ['DONE', 'FAILED', 'CANCELLED'].includes(latestJob.status)) {
+      void qc.invalidateQueries({ queryKey: ['documents', agentId] });
+      void qc.invalidateQueries({ queryKey: ['sources', agentId] });
+    }
+  }, [latestJob?.id, latestJob?.status, agentId, qc]);
+
+  useEffect(() => {
+    setJobId(null);
+    setReindexing(false);
+  }, [agentId]);
+
   const reindexMutation = useMutation({
     mutationFn: () => triggerReindex(agentId),
     onSuccess: (data) => {
@@ -416,7 +369,9 @@ export function KnowledgePage({ agentId }: { agentId: string }) {
     onError: (err) => addToast(err.message, 'error'),
   });
 
-  function handleReindexDone(result: { status: string; errorMessage?: string }) {
+  function handleReindexDone(result: JobResult) {
+    setJobId(null);
+    void qc.invalidateQueries({ queryKey: ['indexing-job', agentId] });
     setReindexing(false);
     void qc.invalidateQueries({ queryKey: ['documents', agentId] });
     void qc.invalidateQueries({ queryKey: ['sources', agentId] });
@@ -424,7 +379,7 @@ export function KnowledgePage({ agentId }: { agentId: string }) {
       addToast(result.errorMessage ?? 'Индексация завершилась с ошибкой', 'error');
       return;
     }
-    addToast('Индексация завершена');
+    addToast(result.status === 'CANCELLED' ? 'Индексация отменена' : 'Индексация завершена');
   }
 
   return (
@@ -439,7 +394,7 @@ export function KnowledgePage({ agentId }: { agentId: string }) {
         </div>
         <Button
           loading={reindexMutation.isPending}
-          disabled={reindexing}
+          disabled={reindexing || !!activeJobId || discoveringJob || discoveryFailed}
           onClick={() => reindexMutation.mutate()}
         >
           <RefreshCwIcon size={16} />
@@ -448,7 +403,26 @@ export function KnowledgePage({ agentId }: { agentId: string }) {
       </div>
 
       {/* Progress bar */}
-      {reindexing && jobId && <ReindexProgress jobId={jobId} onDone={handleReindexDone} />}
+      {discoveryFailed && (
+        <p role="status" className="text-sm text-gray-600">
+          Не удалось получить статус индексации. Повторяем подключение…
+        </p>
+      )}
+      {activeJobId && (
+        <ReindexProgress key={activeJobId} jobId={activeJobId} onDone={handleReindexDone} />
+      )}
+      {!activeJobId && latestJob && ['DONE', 'FAILED', 'CANCELLED'].includes(latestJob.status) && (
+        <p
+          role="status"
+          className={`text-sm ${latestJob.status === 'FAILED' ? 'text-red-600' : 'text-gray-600'}`}
+        >
+          {latestJob.status === 'DONE'
+            ? 'Последняя индексация завершена.'
+            : latestJob.status === 'CANCELLED'
+              ? 'Последняя индексация отменена.'
+              : `Индексация завершилась с ошибкой: ${latestJob.errorMessage ?? 'проверьте источники ниже'}`}
+        </p>
+      )}
 
       {/* Files */}
       <section className="rounded-xl border border-gray-200 bg-white p-6">

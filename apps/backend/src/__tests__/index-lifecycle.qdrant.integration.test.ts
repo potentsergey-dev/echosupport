@@ -13,7 +13,9 @@ vi.mock('../services/text-extractor.js', () => ({ extractText: vi.fn() }));
 
 const { embed } = await import('../adapters/embeddings/openai.js');
 const {
+  deleteByDocumentId,
   deleteByIndexGeneration,
+  deleteBySourceId,
   ensureCollection,
   getCollectionName,
   searchLegacyPoints,
@@ -84,6 +86,38 @@ describe('index lifecycle (PostgreSQL and Qdrant)', () => {
   afterAll(async () => {
     await prisma.$disconnect();
   });
+
+  it('backfills deletion indexes for an existing collection before deleting points', async () => {
+    const tenant = await prisma.tenant.create({ data: { name: 'Qdrant deletion index test' } });
+    tenantId = tenant.id;
+    const name = getCollectionName(tenantId);
+    await qdrant.createCollection(name, { vectors: { size: 1536, distance: 'Cosine' } });
+
+    const documentId = randomUUID();
+    const sourceId = randomUUID();
+    const documentPointId = randomUUID();
+    const sourcePointId = randomUUID();
+    await upsertPoints(tenantId, [
+      { id: documentPointId, vector, payload: { document_id: documentId } },
+      { id: sourcePointId, vector, payload: { source_id: sourceId } },
+    ]);
+
+    await deleteByDocumentId(tenantId, documentId);
+    await deleteBySourceId(tenantId, sourceId);
+    expect(await qdrant.retrieve(name, { ids: [documentPointId, sourcePointId] })).toEqual([]);
+
+    await ensureCollection(tenantId);
+    const collection = await qdrant.getCollection(name);
+    for (const field of [
+      'agent_id',
+      'source_type',
+      'index_generation',
+      'document_id',
+      'source_id',
+    ]) {
+      expect(collection.payload_schema?.[field]).toBeDefined();
+    }
+  }, 60_000);
 
   it('publishes, retrieves, and cleans generations without exposing stale points', async () => {
     vi.mocked(embed).mockImplementation(async (texts) => texts.map(() => vector));

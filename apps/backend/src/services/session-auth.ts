@@ -11,6 +11,20 @@ export interface SessionAuthAdapterOptions {
   now?: () => Date;
 }
 
+export class SessionStoreUnavailableError extends Error {
+  constructor() {
+    super('Session store temporarily unavailable');
+  }
+}
+
+async function sessionStoreCall<T>(operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch {
+    throw new SessionStoreUnavailableError();
+  }
+}
+
 function parseCookieHeader(header: string | undefined): Map<string, string> {
   const cookies = new Map<string, string>();
   if (!header) return cookies;
@@ -37,33 +51,38 @@ export class PrismaSessionAuthWorkspaceAdapter implements AuthWorkspaceAdapter {
     this.now = options.now ?? (() => new Date());
   }
 
-  async authenticateRequest(request: FastifyRequest): Promise<WorkspaceAuthContext> {
+  async authenticateRequest(
+    request: FastifyRequest,
+    options?: { touchSession?: boolean },
+  ): Promise<WorkspaceAuthContext> {
     const token = cookieValue(request, this.options.cookieName);
     if (!token) throw new Error('Missing session cookie');
 
     const tokenHash = hashOpaqueToken(token);
     const now = this.now();
-    const session = await this.prisma.authSession.findUnique({
-      where: { tokenHash },
-      include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            status: true,
+    const session = await sessionStoreCall(() =>
+      this.prisma.authSession.findUnique({
+        where: { tokenHash },
+        include: {
+          user: {
+            select: {
+              id: true,
+              email: true,
+              status: true,
+            },
+          },
+          selectedMembership: {
+            select: {
+              id: true,
+              userId: true,
+              tenantId: true,
+              role: true,
+              status: true,
+            },
           },
         },
-        selectedMembership: {
-          select: {
-            id: true,
-            userId: true,
-            tenantId: true,
-            role: true,
-            status: true,
-          },
-        },
-      },
-    });
+      }),
+    );
 
     if (
       !session ||
@@ -80,10 +99,12 @@ export class PrismaSessionAuthWorkspaceAdapter implements AuthWorkspaceAdapter {
       this.options.idleTtlMs &&
       session.lastSeenAt.getTime() + this.options.idleTtlMs <= now.getTime()
     ) {
-      await this.prisma.authSession.update({
-        where: { id: session.id },
-        data: { revokedAt: now },
-      });
+      await sessionStoreCall(() =>
+        this.prisma.authSession.update({
+          where: { id: session.id },
+          data: { revokedAt: now },
+        }),
+      );
       throw new Error('Session idle timeout');
     }
 
@@ -94,13 +115,16 @@ export class PrismaSessionAuthWorkspaceAdapter implements AuthWorkspaceAdapter {
     );
 
     const shouldTouchLastSeen =
-      !this.options.lastSeenAtThrottleMs ||
-      session.lastSeenAt.getTime() + this.options.lastSeenAtThrottleMs <= now.getTime();
+      options?.touchSession !== false &&
+      (!this.options.lastSeenAtThrottleMs ||
+        session.lastSeenAt.getTime() + this.options.lastSeenAtThrottleMs <= now.getTime());
     if (shouldTouchLastSeen) {
-      await this.prisma.authSession.update({
-        where: { id: session.id },
-        data: { lastSeenAt: now },
-      });
+      await sessionStoreCall(() =>
+        this.prisma.authSession.update({
+          where: { id: session.id },
+          data: { lastSeenAt: now },
+        }),
+      );
     }
 
     return {

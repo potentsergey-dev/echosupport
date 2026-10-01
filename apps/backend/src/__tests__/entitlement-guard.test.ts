@@ -3,6 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('../config/env.js', () => ({
   env: {
+    NODE_ENV: 'test',
+    DATABASE_URL: 'postgresql://test:test@localhost:5432/echosupport_test',
+    DB_POOL_MAX: 2,
     APP_EDITION: 'pro',
     ENTITLEMENT_PROVIDER: 'community',
     ENTITLEMENT_POLICY_VERSION: 'test-policy',
