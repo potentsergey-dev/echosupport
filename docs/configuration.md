@@ -10,6 +10,9 @@
 | `PORT`                         | Internal    | `3000`                  | Backend listen port                                        |
 | `DATABASE_URL`                 | Non-Compose | —                       | PostgreSQL connection URL                                  |
 | `DIRECT_URL`                   | No          | `DATABASE_URL`          | Direct URL used by migrations                              |
+| `DB_POOL_MAX`                  | No          | `10`                    | Maximum PostgreSQL connections per process, from 1 to 50   |
+| `DB_SSL_CA_PEM`                | No          | empty                   | PEM CA certificate for verified PostgreSQL TLS             |
+| `DB_SSL_SERVERNAME`            | With CA     | empty                   | Expected PostgreSQL TLS certificate hostname               |
 | `JWT_SECRET`                   | Yes         | —                       | JWT signing secret, at least 32 characters                 |
 | `MASTER_ENCRYPTION_KEY`        | Yes         | —                       | 64 hex characters; encrypts agent secrets                  |
 | `CRON_SECRET`                  | Docker      | —                       | Internal cron authentication secret                        |
@@ -35,6 +38,12 @@
 
 Agent-specific provider keys saved in the admin panel are encrypted with
 `MASTER_ENCRYPTION_KEY` and override global provider keys.
+
+Set `DB_SSL_CA_PEM` and `DB_SSL_SERVERNAME` together for PostgreSQL using a private CA.
+Certificate and hostname verification remain enabled. Leave both empty for the bundled
+Compose PostgreSQL service. External PostgreSQL requires changing the Compose database
+URLs as well. Size `DB_POOL_MAX` against the combined number of API instances and workers,
+reserving connections for migrations and administration.
 
 Knowledge indexing requires an embeddings-capable key. EchoSupport checks agent-specific
 OpenAI embedding, OpenRouter embedding, and OpenAI keys first, then global

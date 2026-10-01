@@ -36,6 +36,9 @@ services:
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-echosupport}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-echosupport}
       DIRECT_URL: postgresql://${POSTGRES_USER:-echosupport}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-echosupport}
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+      DB_SSL_CA_PEM: ${DB_SSL_CA_PEM:-}
+      DB_SSL_SERVERNAME: ${DB_SSL_SERVERNAME:-}
       QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
@@ -81,6 +84,9 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER:-echosupport}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-echosupport}
       DIRECT_URL: postgresql://${POSTGRES_USER:-echosupport}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-echosupport}
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+      DB_SSL_CA_PEM: ${DB_SSL_CA_PEM:-}
+      DB_SSL_SERVERNAME: ${DB_SSL_SERVERNAME:-}
       QDRANT_URL: http://qdrant:6333
       QDRANT_API_KEY: ${QDRANT_API_KEY:-}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
@@ -128,6 +134,9 @@ services:
       NODE_ENV: production
       DATABASE_URL: postgresql://${POSTGRES_USER:-echosupport}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-echosupport}
       DIRECT_URL: postgresql://${POSTGRES_USER:-echosupport}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-echosupport}
+      DB_POOL_MAX: ${DB_POOL_MAX:-10}
+      DB_SSL_CA_PEM: ${DB_SSL_CA_PEM:-}
+      DB_SSL_SERVERNAME: ${DB_SSL_SERVERNAME:-}
       JWT_SECRET: ${JWT_SECRET:?Set JWT_SECRET in .env}
       MASTER_ENCRYPTION_KEY: ${MASTER_ENCRYPTION_KEY:?Set MASTER_ENCRYPTION_KEY in .env}
       ADMIN_EMAIL: ${ADMIN_EMAIL:?Set ADMIN_EMAIL in .env}
