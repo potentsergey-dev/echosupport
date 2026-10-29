@@ -1,3 +1,9 @@
+import Fastify from 'fastify';
+import jwt from '@fastify/jwt';
+import authPlugin from '../plugins/auth.js';
+import dependenciesPlugin from '../plugins/dependencies.js';
+import entitlementsPlugin from '../plugins/entitlements.js';
+import operatorRoutes from '../routes/operator/index.js';
 import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
@@ -324,5 +330,197 @@ describe('serialized operator edits', () => {
     await expect(
       updateBooking(f.tenant.id, old.id, { startsAt: new Date('2099-12-02T09:00:00Z') }),
     ).rejects.toThrow('BOOKING_OUTSIDE_HOURS');
+  });
+});
+
+// Real JWT/auth/entitlement plugins and real PostgreSQL; no external network services.
+async function httpFixture(capacity = 1) {
+  const f = await fixture(capacity);
+  const app = Fastify({ logger: false });
+  await app.register(jwt, { secret: 'booking-http-test-secret-at-least-32-characters' });
+  await app.register(dependenciesPlugin);
+  await app.register(authPlugin);
+  await app.register(entitlementsPlugin);
+  await app.register(operatorRoutes, { prefix: '/api/v1/operator' });
+  await app.ready();
+  const token = (role = 'OWNER', tenantId = f.tenant.id) =>
+    app.jwt.sign({
+      sub: randomUUID(),
+      email: 'synthetic@example.com',
+      tenantId,
+      role,
+    });
+  const booking = await createBooking(f.input);
+  return { ...f, app, token, booking };
+}
+
+describe('operator booking HTTP admission', () => {
+  it.each(['confirm', 'cancel', 'reschedule', 'edit'])(
+    '%s enforces authentication, role and tenant isolation',
+    async (action) => {
+      const f = await httpFixture();
+      const suffix = action === 'edit' ? '' : `/${action}`;
+      const url = `/api/v1/operator/appointments/${f.booking.id}${suffix}`;
+      const payload =
+        action === 'reschedule'
+          ? { startsAt: '2099-12-02T09:00:00Z' }
+          : { notes: 'Synthetic edit' };
+      try {
+        expect((await f.app.inject({ method: 'PATCH', url, payload })).statusCode).toBe(401);
+        expect(
+          (
+            await f.app.inject({
+              method: 'PATCH',
+              url,
+              payload,
+              headers: { authorization: `Bearer ${f.token('VIEWER')}` },
+            })
+          ).statusCode,
+        ).toBe(403);
+        expect(
+          (
+            await f.app.inject({
+              method: 'PATCH',
+              url,
+              payload,
+              headers: { authorization: `Bearer ${f.token('OWNER', randomUUID())}` },
+            })
+          ).statusCode,
+        ).toBe(404);
+        const after = await prisma.appointment.findUniqueOrThrow({ where: { id: f.booking.id } });
+        expect(after.status).toBe('PENDING');
+        expect(after.startsAt).toEqual(f.input.startsAt);
+        expect(after.notes).toBeNull();
+      } finally {
+        await f.app.close();
+      }
+    },
+  );
+  it.each(['confirm', 'edit'])(
+    '%s returns 409 for reactivation into an occupied slot',
+    async (action) => {
+      const f = await httpFixture();
+      try {
+        await updateBooking(f.tenant.id, f.booking.id, { status: 'CANCELLED' });
+        await createBooking(f.input);
+        const response = await f.app.inject({
+          method: 'PATCH',
+          url: `/api/v1/operator/appointments/${f.booking.id}${action === 'confirm' ? '/confirm' : ''}`,
+          headers: { authorization: `Bearer ${f.token('OPERATOR')}` },
+          payload: action === 'edit' ? { status: 'PENDING' } : {},
+        });
+        expect(response.statusCode).toBe(409);
+        expect(
+          (await prisma.appointment.findUniqueOrThrow({ where: { id: f.booking.id } })).status,
+        ).toBe('CANCELLED');
+      } finally {
+        await f.app.close();
+      }
+    },
+  );
+  it('returns 409 for group reschedule and keeps original dates', async () => {
+    const f = await httpFixture(3);
+    try {
+      await prisma.appointment.update({
+        where: { id: f.booking.id },
+        data: { notes: 'Group participants: 2' },
+      });
+      await createBooking({
+        ...f.input,
+        startsAt: new Date('2099-12-02T09:00:00Z'),
+        endsAt: new Date('2099-12-02T10:00:00Z'),
+        notes: 'Group participants: 2',
+      });
+      const response = await f.app.inject({
+        method: 'PATCH',
+        url: `/api/v1/operator/appointments/${f.booking.id}/reschedule`,
+        headers: { authorization: `Bearer ${f.token('ADMIN')}` },
+        payload: { startsAt: '2099-12-02T09:00:00Z' },
+      });
+      expect(response.statusCode).toBe(409);
+      expect(
+        (await prisma.appointment.findUniqueOrThrow({ where: { id: f.booking.id } })).startsAt,
+      ).toEqual(f.input.startsAt);
+    } finally {
+      await f.app.close();
+    }
+  });
+  it('returns 400 for invalid dates and accepts cancellation without losing group size', async () => {
+    const f = await httpFixture(3);
+    try {
+      await prisma.appointment.update({
+        where: { id: f.booking.id },
+        data: { notes: 'Group participants: 2' },
+      });
+      const headers = { authorization: `Bearer ${f.token()}` };
+      const url = `/api/v1/operator/appointments/${f.booking.id}`;
+      expect(
+        (
+          await f.app.inject({
+            method: 'PATCH',
+            url: `${url}/reschedule`,
+            headers,
+            payload: { startsAt: 'invalid' },
+          })
+        ).statusCode,
+      ).toBe(400);
+      const cancelled = await f.app.inject({
+        method: 'PATCH',
+        url: `${url}/cancel`,
+        headers,
+        payload: { reason: 'Synthetic reason' },
+      });
+      expect(cancelled.statusCode).toBe(200);
+      expect(cancelled.json()).toMatchObject({
+        status: 'CANCELLED',
+        notes: 'Group participants: 2\nSynthetic reason',
+      });
+    } finally {
+      await f.app.close();
+    }
+  });
+  it('accepts authorized edits, confirmation and reschedule; rejects times outside hours', async () => {
+    const f = await httpFixture();
+    try {
+      const headers = { authorization: `Bearer ${f.token('OPERATOR')}` };
+      const url = `/api/v1/operator/appointments/${f.booking.id}`;
+      const edit = await f.app.inject({
+        method: 'PATCH',
+        url,
+        headers,
+        payload: { visitorName: 'Updated visitor' },
+      });
+      expect(edit.statusCode).toBe(200);
+      expect(edit.json()).toMatchObject({ visitorName: 'Updated visitor', status: 'PENDING' });
+      expect(
+        (await f.app.inject({ method: 'PATCH', url: `${url}/confirm`, headers, payload: {} }))
+          .statusCode,
+      ).toBe(200);
+      const moved = await f.app.inject({
+        method: 'PATCH',
+        url: `${url}/reschedule`,
+        headers,
+        payload: { startsAt: '2099-12-02T09:00:00Z' },
+      });
+      expect(moved.statusCode).toBe(200);
+      expect(moved.json()).toMatchObject({
+        startsAt: '2099-12-02T09:00:00.000Z',
+        endsAt: '2099-12-02T10:00:00.000Z',
+        status: 'PENDING',
+      });
+      await prisma.specialistWorkingHours.deleteMany({ where: { specialistId: f.specialist.id } });
+      const denied = await f.app.inject({
+        method: 'PATCH',
+        url: `${url}/reschedule`,
+        headers,
+        payload: { startsAt: '2099-12-03T09:00:00Z' },
+      });
+      expect(denied.statusCode).toBe(400);
+      expect(
+        (await prisma.appointment.findUniqueOrThrow({ where: { id: f.booking.id } })).startsAt,
+      ).toEqual(new Date('2099-12-02T09:00:00Z'));
+    } finally {
+      await f.app.close();
+    }
   });
 });
