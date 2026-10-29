@@ -1,3 +1,4 @@
+BEGIN;
 -- Expand migration: legacy readers keep notes; unresolved rows retain their original text.
 ALTER TABLE "Appointment" ADD COLUMN "participantCount" INTEGER,
  ADD COLUMN "participantCountReviewReason" TEXT;
@@ -110,3 +111,5 @@ BEGIN
 END $$;
 CREATE TRIGGER booking_business_hours_lock BEFORE INSERT OR UPDATE OR DELETE ON "BusinessHours"
  FOR EACH ROW EXECUTE FUNCTION booking_business_hours_lock();
+
+COMMIT;
