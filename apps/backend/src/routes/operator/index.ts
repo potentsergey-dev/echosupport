@@ -1,4 +1,4 @@
-import { createBooking } from '../../services/booking-mutations.js';
+import { confirmBooking, createBooking, updateBooking } from '../../services/booking-mutations.js';
 /**
  * Operator API routes (accessible by OWNER, ADMIN, OPERATOR):
  *
@@ -24,12 +24,7 @@ import { chatCompletion } from '../../adapters/llm/openrouter.js';
 import { env } from '../../config/env.js';
 import { isSlotWithinWorkingHours } from '../../services/slot-finder.js';
 import { buildSuggestedReplyTranscript } from '../../services/suggested-reply.js';
-import {
-  APPOINTMENT_STATUSES,
-  assertSlotCanAcceptAppointment,
-  getBookableServiceForSpecialist,
-  getAppointmentParticipantCount,
-} from '../../services/booking.js';
+import { APPOINTMENT_STATUSES, getBookableServiceForSpecialist } from '../../services/booking.js';
 import { summarizeError } from '../../services/error-sanitizer.js';
 
 const OPERATOR_ROLES = ['OWNER', 'ADMIN', 'OPERATOR'];
@@ -772,22 +767,20 @@ Only output the reply text — no meta-commentary.`;
     async (req, reply) => {
       const { id } = req.params as { id: string };
 
-      const appt = await prisma.appointment.findFirst({
-        where: { id, tenantId: req.user.tenantId },
-        select: { id: true, status: true },
-      });
-      if (!appt) return reply.status(404).send({ error: 'Appointment not found' });
-
-      const updated = await prisma.appointment.update({
-        where: { id },
-        data: { status: 'CONFIRMED' },
-        include: {
-          specialist: { select: { id: true, name: true } },
-          service: { select: { id: true, name: true, isGroup: true, capacity: true } },
-        },
-      });
-
-      return reply.send(updated);
+      try {
+        return reply.send(await confirmBooking(req.user.tenantId, id));
+      } catch (error) {
+        const code = error instanceof Error ? error.message : '';
+        if (code === 'BOOKING_NOT_FOUND')
+          return reply.status(404).send({ error: 'Appointment not found' });
+        if (
+          ['BOOKING_UNAVAILABLE', 'BOOKING_OUTSIDE_HOURS', 'SLOT_TAKEN', 'SLOT_FULL'].includes(code)
+        )
+          return reply
+            .status(409)
+            .send({ error: 'Appointment cannot be confirmed. Please check availability.' });
+        throw error;
+      }
     },
   );
 
@@ -799,21 +792,29 @@ Only output the reply text — no meta-commentary.`;
       const { id } = req.params as { id: string };
       const body = z.object({ reason: z.string().max(500).optional() }).safeParse(req.body);
 
-      const appt = await prisma.appointment.findFirst({
-        where: { id, tenantId: req.user.tenantId },
-        select: { id: true },
-      });
-      if (!appt) return reply.status(404).send({ error: 'Appointment not found' });
-
-      const updated = await prisma.appointment.update({
-        where: { id },
-        data: {
-          status: 'CANCELLED',
-          ...(body.success && body.data.reason ? { notes: body.data.reason } : {}),
-        },
-      });
-
-      return reply.send(updated);
+      try {
+        return reply.send(
+          await updateBooking(req.user.tenantId, id, {
+            status: 'CANCELLED',
+            ...(body.success && body.data.reason ? { notes: body.data.reason } : {}),
+          }),
+        );
+      } catch (error) {
+        const code = error instanceof Error ? error.message : '';
+        if (code === 'BOOKING_NOT_FOUND')
+          return reply.status(404).send({ error: 'Appointment not found' });
+        if (code === 'BOOKING_OUTSIDE_HOURS')
+          return reply
+            .status(400)
+            .send({ error: "The requested time is outside the specialist's working hours." });
+        if (
+          ['BOOKING_UNAVAILABLE', 'BOOKING_OUTSIDE_HOURS', 'SLOT_TAKEN', 'SLOT_FULL'].includes(code)
+        )
+          return reply
+            .status(409)
+            .send({ error: 'Appointment cannot be updated. Please check availability.' });
+        throw error;
+      }
     },
   );
 
@@ -827,60 +828,26 @@ Only output the reply text — no meta-commentary.`;
       if (!result.success)
         return reply.status(400).send({ error: 'startsAt required (ISO datetime)' });
 
-      const appt = await prisma.appointment.findFirst({
-        where: { id, tenantId: req.user.tenantId },
-        include: {
-          service: { select: { id: true, durationMin: true, isGroup: true, capacity: true } },
-        },
-      });
-      if (!appt) return reply.status(404).send({ error: 'Appointment not found' });
-
-      const durationMin = appt.service?.durationMin ?? 60;
-      const startsAt = new Date(result.data.startsAt);
-      if (startsAt.getTime() < Date.now()) {
-        return reply.status(400).send({ error: 'Appointment time must be in the future' });
-      }
-      const endsAt = new Date(startsAt.getTime() + durationMin * 60 * 1000);
-
-      const withinHours = await isSlotWithinWorkingHours(appt.specialistId, startsAt, endsAt);
-      if (!withinHours) {
-        return reply
-          .status(400)
-          .send({ error: "The requested time is outside the specialist's working hours." });
-      }
-
       try {
-        await assertSlotCanAcceptAppointment({
-          specialistId: appt.specialistId,
-          serviceId: appt.service?.id ?? null,
-          startsAt,
-          endsAt,
-          isGroup: appt.service?.isGroup ?? false,
-          capacity: appt.service?.capacity ?? 1,
-          excludeAppointmentId: id,
-        });
-      } catch (err) {
-        if (err instanceof Error && (err.message === 'SLOT_TAKEN' || err.message === 'SLOT_FULL')) {
-          return reply.status(409).send({
-            error:
-              err.message === 'SLOT_FULL'
-                ? 'This group session is already full. Please choose another time.'
-                : 'New time slot conflicts with existing appointment',
-          });
-        }
-        throw err;
+        return reply.send(
+          await updateBooking(req.user.tenantId, id, { startsAt: new Date(result.data.startsAt) }),
+        );
+      } catch (error) {
+        const code = error instanceof Error ? error.message : '';
+        if (code === 'BOOKING_NOT_FOUND')
+          return reply.status(404).send({ error: 'Appointment not found' });
+        if (code === 'BOOKING_OUTSIDE_HOURS')
+          return reply
+            .status(400)
+            .send({ error: "The requested time is outside the specialist's working hours." });
+        if (
+          ['BOOKING_UNAVAILABLE', 'BOOKING_OUTSIDE_HOURS', 'SLOT_TAKEN', 'SLOT_FULL'].includes(code)
+        )
+          return reply
+            .status(409)
+            .send({ error: 'Appointment cannot be updated. Please check availability.' });
+        throw error;
       }
-
-      const updated = await prisma.appointment.update({
-        where: { id },
-        data: { startsAt, endsAt, status: 'PENDING' },
-        include: {
-          specialist: { select: { id: true, name: true } },
-          service: { select: { id: true, name: true, isGroup: true, capacity: true } },
-        },
-      });
-
-      return reply.send(updated);
     },
   );
 
@@ -901,53 +868,24 @@ Only output the reply text — no meta-commentary.`;
       if (!result.success)
         return reply.status(400).send({ error: result.error.flatten().fieldErrors });
 
-      const appt = await prisma.appointment.findFirst({
-        where: { id, tenantId: req.user.tenantId },
-        include: {
-          service: { select: { id: true, isGroup: true, capacity: true } },
-        },
-      });
-      if (!appt) return reply.status(404).send({ error: 'Appointment not found' });
-
-      const { notes, visitorName, visitorPhone, visitorEmail, status } = result.data;
-      if (notes !== undefined && appt.service?.isGroup) {
-        try {
-          await assertSlotCanAcceptAppointment({
-            specialistId: appt.specialistId,
-            serviceId: appt.service.id,
-            startsAt: appt.startsAt,
-            endsAt: appt.endsAt,
-            isGroup: true,
-            capacity: appt.service.capacity,
-            requestedParticipants: getAppointmentParticipantCount(notes),
-            excludeAppointmentId: id,
-          });
-        } catch (err) {
-          if (err instanceof Error && err.message === 'SLOT_FULL') {
-            return reply.status(409).send({
-              error:
-                'There are not enough free seats in this group session. Reduce participants or choose another time.',
-            });
-          }
-          throw err;
-        }
+      try {
+        return reply.send(await updateBooking(req.user.tenantId, id, result.data));
+      } catch (error) {
+        const code = error instanceof Error ? error.message : '';
+        if (code === 'BOOKING_NOT_FOUND')
+          return reply.status(404).send({ error: 'Appointment not found' });
+        if (code === 'BOOKING_OUTSIDE_HOURS')
+          return reply
+            .status(400)
+            .send({ error: "The requested time is outside the specialist's working hours." });
+        if (
+          ['BOOKING_UNAVAILABLE', 'BOOKING_OUTSIDE_HOURS', 'SLOT_TAKEN', 'SLOT_FULL'].includes(code)
+        )
+          return reply
+            .status(409)
+            .send({ error: 'Appointment cannot be updated. Please check availability.' });
+        throw error;
       }
-      const apptUpdateData: Record<string, unknown> = {};
-      if (notes !== undefined) apptUpdateData['notes'] = notes;
-      if (visitorName !== undefined) apptUpdateData['visitorName'] = visitorName;
-      if (visitorPhone !== undefined) apptUpdateData['visitorPhone'] = visitorPhone;
-      if (visitorEmail !== undefined) apptUpdateData['visitorEmail'] = visitorEmail;
-      if (status !== undefined) apptUpdateData['status'] = status;
-
-      const updated = await prisma.appointment.update({
-        where: { id },
-        data: apptUpdateData,
-        include: {
-          specialist: { select: { id: true, name: true } },
-          service: { select: { id: true, name: true, isGroup: true, capacity: true } },
-        },
-      });
-      return reply.send(updated);
     },
   );
 };
