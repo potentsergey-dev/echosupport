@@ -10,7 +10,7 @@
  */
 
 import { prisma } from '../db/prisma.js';
-import { getAppointmentParticipantCount } from './booking.js';
+import { getStoredParticipantCount } from './booking.js';
 
 export interface AvailableSlot {
   startsAt: string; // ISO string
@@ -232,7 +232,14 @@ export async function findAvailableSlots(
       startsAt: { lt: to },
       endsAt: { gt: from },
     },
-    select: { serviceId: true, startsAt: true, endsAt: true, notes: true },
+    select: {
+      serviceId: true,
+      startsAt: true,
+      endsAt: true,
+      notes: true,
+      participantCount: true,
+      participantCountReviewReason: true,
+    },
   });
 
   // Build blocked intervals
@@ -240,7 +247,10 @@ export async function findAvailableSlots(
     serviceId: a.serviceId,
     from: a.startsAt.getTime(),
     to: a.endsAt.getTime(),
-    participantCount: getAppointmentParticipantCount(a.notes),
+    participantCount:
+      a.participantCount === null || a.participantCountReviewReason
+        ? Number.POSITIVE_INFINITY
+        : getStoredParticipantCount(a),
   }));
 
   const slots: AvailableSlot[] = [];

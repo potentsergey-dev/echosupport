@@ -248,6 +248,8 @@ export interface Service {
 }
 
 export interface Appointment {
+  participantCount?: number | null;
+  participantCountReviewReason?: string | null;
   id: string;
   tenantId: string;
   agentId: string | null;

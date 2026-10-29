@@ -672,6 +672,11 @@ model SpecialistWorkingHours {
 }
 
 model Appointment {
+  bookingRequestKey String?
+  bookingRequestHash String?
+  @@unique([tenantId, bookingRequestKey])
+  participantCount Int?
+  participantCountReviewReason String?
   id              String            @id @default(cuid())
   tenantId        String
   agentId         String?

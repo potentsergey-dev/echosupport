@@ -52,6 +52,17 @@ export function getAppointmentParticipantCount(notes: string | null | undefined)
   return Number.isInteger(count) && count > 0 ? count : 1;
 }
 
+export function getStoredParticipantCount(appointment: {
+  participantCount?: number | null;
+  participantCountReviewReason?: string | null;
+  notes?: string | null;
+}): number {
+  if (appointment.participantCount === null || appointment.participantCountReviewReason)
+    throw new Error('BOOKING_PARTICIPANTS_REVIEW');
+  // Undefined is only for older serialized objects; database reads select the column.
+  return appointment.participantCount ?? getAppointmentParticipantCount(appointment.notes);
+}
+
 export type SlotAvailabilityError = 'SLOT_TAKEN' | 'SLOT_FULL';
 
 export async function getBookableServiceForSpecialist({
@@ -106,7 +117,15 @@ export async function assertSlotCanAcceptAppointment({
       startsAt: { lt: endsAt },
       endsAt: { gt: startsAt },
     },
-    select: { id: true, serviceId: true, startsAt: true, endsAt: true, notes: true },
+    select: {
+      id: true,
+      serviceId: true,
+      startsAt: true,
+      endsAt: true,
+      notes: true,
+      participantCount: true,
+      participantCountReviewReason: true,
+    },
   });
 
   if (!isGroup || !serviceId) {
@@ -125,7 +144,7 @@ export async function assertSlotCanAcceptAppointment({
 
   const occupiedSeats = overlappingAppointments
     .filter(isSameGroupSlot)
-    .reduce((total, appointment) => total + getAppointmentParticipantCount(appointment.notes), 0);
+    .reduce((total, appointment) => total + getStoredParticipantCount(appointment), 0);
   const requestedSeats = Math.max(1, requestedParticipants);
   if (occupiedSeats + requestedSeats > Math.max(1, capacity)) throw new Error('SLOT_FULL');
 }
