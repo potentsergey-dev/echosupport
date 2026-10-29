@@ -751,6 +751,7 @@ describe('numeric participants and request recovery', () => {
         ).statusCode,
       ).toBe(400);
       const a = await f.app.inject({ method: 'POST', url, payload, headers });
+      await prisma.service.update({ where: { id: f.service.id }, data: { durationMin: 120 } });
       const b = await f.app.inject({ method: 'POST', url, payload, headers });
       expect(a.statusCode).toBe(201);
       expect(b.statusCode).toBe(201);
