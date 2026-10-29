@@ -1,3 +1,4 @@
+import { appointmentLocalValue, appointmentLocalToIso } from '../lib/appointment-time';
 import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PlusIcon, CheckIcon, XIcon, CalendarIcon, PencilIcon } from 'lucide-react';
@@ -174,12 +175,11 @@ function RescheduleModal({
 }) {
   const { addToast } = useToastContext();
   const qc = useQueryClient();
-  const [startsAt, setStartsAt] = useState(
-    new Date(appointment.startsAt).toISOString().slice(0, 16),
-  );
+  const [startsAt, setStartsAt] = useState(appointmentLocalValue(appointment.startsAt));
 
   const mutation = useMutation({
-    mutationFn: () => rescheduleAppointment(appointment.id, new Date(startsAt).toISOString()),
+    mutationFn: () =>
+      rescheduleAppointment(appointment.id, appointmentLocalToIso(startsAt, appointment.startsAt)),
     onSuccess: () => {
       addToast('Запись перенесена', 'success');
       void qc.invalidateQueries({ queryKey: ['appointments'] });
@@ -197,9 +197,13 @@ function RescheduleModal({
         <h2 className="mb-4 text-lg font-semibold text-gray-900">Перенос записи</h2>
         <div>
           <Label htmlFor="new-time">Новое время</Label>
+          <p className="text-xs text-gray-500">
+            Часовой пояс ввода: {Intl.DateTimeFormat().resolvedOptions().timeZone}
+          </p>
           <input
             id="new-time"
             type="datetime-local"
+            aria-description={`Часовой пояс: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`}
             value={startsAt}
             onChange={(e) => setStartsAt(e.target.value)}
             className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
@@ -275,7 +279,7 @@ function CreateAppointmentModal({
           participantCount: selectedService?.isGroup ? participantCount : 1,
           visitorName,
           visitorPhone,
-          startsAt: new Date(startsAt).toISOString(),
+          startsAt: appointmentLocalToIso(startsAt),
           ...(notes ? { notes } : {}),
         },
         requestKey,
@@ -392,9 +396,13 @@ function CreateAppointmentModal({
           )}
           <div>
             <Label htmlFor="ca-time">Дата и время *</Label>
+            <p className="text-xs text-gray-500">
+              Часовой пояс ввода: {Intl.DateTimeFormat().resolvedOptions().timeZone}
+            </p>
             <input
               id="ca-time"
               type="datetime-local"
+              aria-description={`Часовой пояс: ${Intl.DateTimeFormat().resolvedOptions().timeZone}`}
               value={startsAt}
               onChange={(e) => setStartsAt(e.target.value)}
               className="mt-1 w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
