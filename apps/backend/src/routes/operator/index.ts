@@ -1,3 +1,4 @@
+import { createBooking } from '../../services/booking-mutations.js';
 /**
  * Operator API routes (accessible by OWNER, ADMIN, OPERATOR):
  *
@@ -724,47 +725,34 @@ Only output the reply text — no meta-commentary.`;
           .send({ error: "The requested time is outside the specialist's working hours." });
       }
 
-      // Slot conflict check + create in transaction
-      const appointment = await prisma
-        .$transaction(async (tx) => {
-          await assertSlotCanAcceptAppointment({
-            specialistId,
-            serviceId: bookableService.id,
-            startsAt,
-            endsAt,
-            isGroup: bookableService.isGroup,
-            capacity: bookableService.capacity,
-            db: tx,
-          });
+      const appointment = await createBooking({
+        tenantId: req.user.tenantId,
+        specialistId,
+        serviceId: bookableService.id,
+        visitorName,
+        visitorPhone,
+        visitorEmail: visitorEmail ?? null,
+        startsAt,
+        endsAt,
+        source: 'OPERATOR',
+        notes: notes ?? null,
+        createdByUserId: req.user.sub,
+        sessionId: sessionId ?? null,
+      }).catch((err: Error) => {
+        if (
+          err.message === 'SLOT_TAKEN' ||
+          err.message === 'SLOT_FULL' ||
+          err.message === 'BOOKING_UNAVAILABLE'
+        )
+          return err.message;
+        throw err;
+      });
 
-          return tx.appointment.create({
-            data: {
-              tenantId: req.user.tenantId,
-              specialistId,
-              serviceId: bookableService.id,
-              visitorName,
-              visitorPhone,
-              visitorEmail: visitorEmail ?? null,
-              startsAt,
-              endsAt,
-              status: 'PENDING',
-              source: 'OPERATOR',
-              notes: notes ?? null,
-              createdByUserId: req.user.sub,
-              sessionId: sessionId ?? null,
-            },
-            include: {
-              specialist: { select: { id: true, name: true, role: true } },
-              service: { select: { id: true, name: true, isGroup: true, capacity: true } },
-            },
-          });
-        })
-        .catch((err: Error) => {
-          if (err.message === 'SLOT_TAKEN' || err.message === 'SLOT_FULL') return err.message;
-          throw err;
-        });
-
-      if (appointment === 'SLOT_TAKEN' || appointment === 'SLOT_FULL') {
+      if (
+        appointment === 'SLOT_TAKEN' ||
+        appointment === 'SLOT_FULL' ||
+        appointment === 'BOOKING_UNAVAILABLE'
+      ) {
         return reply.status(409).send({
           error:
             appointment === 'SLOT_FULL'

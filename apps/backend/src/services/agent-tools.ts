@@ -25,7 +25,8 @@ import {
   parseBusinessDateTime,
 } from './slot-finder.js';
 import { normalizeQuickReplies } from './quick-replies.js';
-import { assertSlotCanAcceptAppointment, getBookableServiceForSpecialist } from './booking.js';
+import { getBookableServiceForSpecialist } from './booking.js';
+import { createBooking } from './booking-mutations.js';
 import {
   buildSlotQuickReplies,
   matchSpecialistsByName,
@@ -1198,78 +1199,34 @@ export async function executeTool(
         };
       }
 
-      // Race-condition safe slot check + create/update in transaction
-      const participantNotes = bookableService.isGroup
-        ? `Group participants: ${requestedParticipants}`
-        : null;
-      const appointment = await prisma
-        .$transaction(async (tx) => {
-          const existingGroupAppointment = bookableService.isGroup
-            ? await tx.appointment.findFirst({
-                where: {
-                  tenantId: agent.tenantId,
-                  specialistId,
-                  serviceId: bookableService.id,
-                  startsAt,
-                  endsAt,
-                  status: { in: ['PENDING', 'CONFIRMED'] },
-                  OR: [{ sessionId: ctx.sessionId }, { visitorPhone: phone }],
-                },
-                select: { id: true },
-              })
-            : null;
+      const appointment = await createBooking({
+        tenantId: agent.tenantId,
+        agentId: ctx.agentId,
+        sessionId: ctx.sessionId,
+        specialistId,
+        serviceId: bookableService.id,
+        visitorName: name,
+        visitorPhone: phone,
+        visitorEmail: email ?? null,
+        startsAt,
+        endsAt,
+        source: 'AGENT',
+        notes: bookableService.isGroup ? `Group participants: ${requestedParticipants}` : null,
+      }).catch((err: Error) => {
+        if (
+          err.message === 'SLOT_TAKEN' ||
+          err.message === 'SLOT_FULL' ||
+          err.message === 'BOOKING_UNAVAILABLE'
+        )
+          return err.message;
+        throw err;
+      });
 
-          await assertSlotCanAcceptAppointment({
-            specialistId,
-            serviceId: bookableService.id,
-            startsAt,
-            endsAt,
-            isGroup: bookableService.isGroup,
-            capacity: bookableService.capacity,
-            requestedParticipants: bookableService.isGroup ? requestedParticipants : 1,
-            ...(existingGroupAppointment
-              ? { excludeAppointmentId: existingGroupAppointment.id }
-              : {}),
-            db: tx,
-          });
-
-          if (existingGroupAppointment) {
-            return tx.appointment.update({
-              where: { id: existingGroupAppointment.id },
-              data: {
-                visitorName: name,
-                visitorPhone: phone,
-                visitorEmail: email ?? null,
-                notes: participantNotes,
-                status: 'PENDING',
-              },
-            });
-          }
-
-          return tx.appointment.create({
-            data: {
-              tenantId: agent.tenantId,
-              agentId: ctx.agentId,
-              sessionId: ctx.sessionId,
-              specialistId,
-              serviceId: bookableService.id,
-              visitorName: name,
-              visitorPhone: phone,
-              visitorEmail: email ?? null,
-              startsAt,
-              endsAt,
-              status: 'PENDING',
-              source: 'AGENT',
-              notes: participantNotes,
-            },
-          });
-        })
-        .catch((err: Error) => {
-          if (err.message === 'SLOT_TAKEN' || err.message === 'SLOT_FULL') return err.message;
-          throw err;
-        });
-
-      if (appointment === 'SLOT_TAKEN' || appointment === 'SLOT_FULL') {
+      if (
+        appointment === 'SLOT_TAKEN' ||
+        appointment === 'SLOT_FULL' ||
+        appointment === 'BOOKING_UNAVAILABLE'
+      ) {
         return {
           result: JSON.stringify({
             success: false,
@@ -1322,7 +1279,7 @@ export async function executeTool(
           specialistName: specialist.name,
           visitorName: name,
           startsAt: startsAt.toISOString(),
-          status: 'PENDING',
+          status: appointment.status,
         },
       });
 
@@ -1331,8 +1288,8 @@ export async function executeTool(
           success: true,
           appointmentId: appointment.id,
           message: bookableService.isGroup
-            ? `Group appointment booked for ${requestedParticipants} participant${requestedParticipants === 1 ? '' : 's'} for ${name} on ${formatBusinessDateTime(startsAt, timeZone)} (${timeZone}). Service: ${bookableService.name ?? serviceName}. Status: PENDING — awaiting operator confirmation.`
-            : `Appointment booked for ${name} on ${formatBusinessDateTime(startsAt, timeZone)} (${timeZone}). Service: ${bookableService.name ?? serviceName}. Status: PENDING — awaiting operator confirmation.`,
+            ? `Group appointment booked for ${requestedParticipants} participant${requestedParticipants === 1 ? '' : 's'} for ${name} on ${formatBusinessDateTime(startsAt, timeZone)} (${timeZone}). Service: ${bookableService.name ?? serviceName}. Status: ${appointment.status === 'CONFIRMED' ? 'CONFIRMED.' : 'PENDING — awaiting operator confirmation.'}`
+            : `Appointment booked for ${name} on ${formatBusinessDateTime(startsAt, timeZone)} (${timeZone}). Service: ${bookableService.name ?? serviceName}. Status: ${appointment.status === 'CONFIRMED' ? 'CONFIRMED.' : 'PENDING — awaiting operator confirmation.'}`,
         }),
       };
     }
