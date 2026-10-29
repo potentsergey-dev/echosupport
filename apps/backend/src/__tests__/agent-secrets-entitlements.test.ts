@@ -133,4 +133,32 @@ describe('agent secret entitlement gates', () => {
     expect(prisma.agent.update).not.toHaveBeenCalled();
     await app.close();
   });
+  it('preserves omitted agent settings on a name-only PATCH after schema upgrades', async () => {
+    const app = await buildLiteServer();
+    vi.mocked(prisma.agent.findFirst).mockResolvedValueOnce({ id: 'agent-1' } as never);
+    vi.mocked(prisma.agent.update).mockResolvedValueOnce({
+      id: 'agent-1',
+      name: 'Renamed',
+    } as never);
+    const token = app.jwt.sign({
+      sub: 'user-1',
+      email: 'owner@example.com',
+      tenantId: 'tenant-lite',
+      role: 'OWNER',
+    });
+    try {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: '/api/v1/admin/agents/agent-1',
+        headers: { Authorization: `Bearer ${token}` },
+        payload: { name: 'Renamed' },
+      });
+      expect(res.statusCode).toBe(200);
+      expect(prisma.agent.update).toHaveBeenCalledWith(
+        expect.objectContaining({ data: { name: 'Renamed' } }),
+      );
+    } finally {
+      await app.close();
+    }
+  });
 });
