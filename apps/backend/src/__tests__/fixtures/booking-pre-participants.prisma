@@ -1,0 +1,713 @@
+// Historical Community schema: 05ff73f, before participant/request fields.
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─────────────────────────────────────────────────────────────
+// Tenants & Users (multi-tenancy ready)
+// ─────────────────────────────────────────────────────────────
+
+model Tenant {
+  id               String                     @id @default(cuid())
+  name             String
+  createdAt        DateTime                   @default(now())
+  users            User[]
+  agents           Agent[]
+  memberships      Membership[]
+  invitations      WorkspaceInvitation[]
+  authSessions     AuthSession[]
+  auditLogs        AuditLog[]
+  planAssignments  TenantPlanAssignment[]
+  onboardingStates WorkspaceOnboardingState[]
+}
+
+model User {
+  id                 String                @id @default(cuid())
+  tenantId           String?
+  email              String                @unique
+  normalizedEmail    String                @unique
+  emailVerified      Boolean               @default(false)
+  passwordHash       String?
+  role               UserRole              @default(OWNER)
+  status             UserStatus            @default(ACTIVE)
+  createdAt          DateTime              @default(now())
+  updatedAt          DateTime              @updatedAt
+  tenant             Tenant?               @relation(fields: [tenantId], references: [id], onDelete: SetNull)
+  externalIdentities ExternalIdentity[]
+  memberships        Membership[]
+  authSessions       AuthSession[]
+  sentInvitations    WorkspaceInvitation[] @relation("InvitationsInvitedBy")
+  auditLogs          AuditLog[]
+
+  @@index([tenantId])
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  OPERATOR
+}
+
+enum UserStatus {
+  ACTIVE
+  DISABLED
+  DELETED
+}
+
+model ExternalIdentity {
+  id        String   @id @default(cuid())
+  userId    String
+  provider  String
+  subject   String
+  email     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, subject])
+  @@index([userId])
+  @@index([email])
+}
+
+model Membership {
+  id        String           @id @default(cuid())
+  userId    String
+  tenantId  String
+  role      UserRole
+  status    MembershipStatus @default(ACTIVE)
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tenant       Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  authSessions AuthSession[]
+
+  @@unique([userId, tenantId])
+  @@index([tenantId, status])
+  @@index([userId, status])
+}
+
+enum MembershipStatus {
+  ACTIVE
+  INVITED
+  SUSPENDED
+  REMOVED
+}
+
+model WorkspaceInvitation {
+  id          String    @id @default(cuid())
+  workspaceId String
+  email       String
+  role        UserRole
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  revokedAt   DateTime?
+  invitedById String
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace Tenant @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  invitedBy User   @relation("InvitationsInvitedBy", fields: [invitedById], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, email])
+  @@index([email])
+  @@index([expiresAt])
+}
+
+model AuthSession {
+  id                   String    @id @default(cuid())
+  tokenHash            String    @unique
+  userId               String
+  tenantId             String?
+  selectedMembershipId String?
+  issuedAt             DateTime  @default(now())
+  expiresAt            DateTime
+  revokedAt            DateTime?
+  lastSeenAt           DateTime  @default(now())
+  userAgent            String?
+  ipHash               String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  user               User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  selectedWorkspace  Tenant?     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  selectedMembership Membership? @relation(fields: [selectedMembershipId], references: [id], onDelete: SetNull)
+
+  @@index([userId, revokedAt])
+  @@index([tenantId])
+  @@index([selectedMembershipId])
+  @@index([expiresAt])
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  workspaceId String?
+  actorUserId String?
+  action      String
+  targetType  String
+  targetId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  workspace Tenant? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+  actor     User?   @relation(fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([workspaceId, createdAt])
+  @@index([actorUserId, createdAt])
+  @@index([action])
+}
+
+model TenantPlanAssignment {
+  id        String                     @id @default(cuid())
+  tenantId  String
+  plan      WorkspacePlanName
+  source    TenantPlanAssignmentSource
+  startsAt  DateTime                   @default(now())
+  endsAt    DateTime?
+  createdAt DateTime                   @default(now())
+  updatedAt DateTime                   @updatedAt
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, startsAt])
+  @@index([tenantId, endsAt])
+  @@index([plan])
+}
+
+enum WorkspacePlanName {
+  Lite
+  PRO
+}
+
+enum TenantPlanAssignmentSource {
+  ONBOARDING
+  MANUAL
+  COMPATIBILITY_BACKFILL
+}
+
+model WorkspaceOnboardingState {
+  id                       String    @id @default(cuid())
+  workspaceId              String    @unique
+  planSelectedAt           DateTime?
+  draftAgentCreatedAt      DateTime?
+  agentProfileConfiguredAt DateTime?
+  knowledgeSourceAddedAt   DateTime?
+  playgroundTestedAt       DateTime?
+  completedAt              DateTime?
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  workspace Tenant @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// ─────────────────────────────────────────────────────────────
+// Agent
+// ─────────────────────────────────────────────────────────────
+
+model Agent {
+  id                           String               @id @default(cuid())
+  tenantId                     String
+  name                         String
+  role                         String?
+  avatarUrl                    String?
+  systemPrompt                 String               @db.Text
+  llmModel                     String               @default("openai/gpt-4o-mini")
+  embeddingModel               String               @default("text-embedding-3-small")
+  language                     String               @default("auto")
+  sourcePriority               SourcePriority       @default(MERGE)
+  sessionTtlMinutes            Int                  @default(120)
+  publicKey                    String               @unique
+  allowedOrigins               String[]             @default([])
+  isActive                     Boolean              @default(true)
+  greetingMessage              String?              @db.Text
+  proactiveMessageDelay        Int?
+  proactiveMessageText         String?              @db.Text
+  encryptedSecrets             Json?
+  sttProvider                  STTProvider          @default(DEEPGRAM)
+  // ── Phase 10.5: Anti-abuse settings ──
+  maxMessagesPerHourPerVisitor Int                  @default(60)
+  maxSessionsPerDayPerVisitor  Int                  @default(10)
+  maxMessageLength             Int                  @default(2000)
+  // ── Phase 10.6: Booking ──
+  bookingEnabled               Boolean              @default(false)
+  lifecycleStatus              AgentLifecycleStatus @default(ACTIVE)
+  activeIndexGeneration        String?
+  createdAt                    DateTime             @default(now())
+  updatedAt                    DateTime             @updatedAt
+
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  documents     Document[]
+  sources       KnowledgeSource[]
+  sessions      Session[]
+  businessHours BusinessHours?
+
+  @@index([tenantId])
+  @@index([publicKey])
+}
+
+enum SourcePriority {
+  MERGE
+  FILES_FIRST
+  URL_FIRST
+}
+
+enum STTProvider {
+  DEEPGRAM
+  WHISPER
+}
+
+enum AgentLifecycleStatus {
+  DRAFT
+  ACTIVE
+  ARCHIVED
+}
+
+// ─────────────────────────────────────────────────────────────
+// Knowledge Sources
+// ─────────────────────────────────────────────────────────────
+
+model Document {
+  id             String      @id @default(cuid())
+  agentId        String
+  filename       String
+  mimeType       String
+  sizeBytes      Int
+  storagePath    String
+  storageVersion String?
+  status         IndexStatus @default(PENDING)
+  chunksCount    Int         @default(0)
+  errorMessage   String?
+  createdAt      DateTime    @default(now())
+  indexedAt      DateTime?
+
+  agent  Agent           @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  chunks DocumentChunk[]
+
+  @@index([agentId])
+}
+
+// Kept independently of agent/user deletion so storage cleanup cannot lose its ledger.
+model UploadIntent {
+  id               String             @id
+  tenantId         String
+  agentId          String
+  uploaderId       String
+  idempotencyKey   String
+  documentId       String             @unique
+  filename         String
+  mimeType         String
+  sizeBytes        Int
+  stagingKey       String             @unique
+  finalKey         String             @unique
+  sourceVersion    String?
+  finalVersion     String?
+  status           UploadIntentStatus @default(PENDING)
+  expiresAt        DateTime
+  leaseToken       String?
+  leaseExpiresAt   DateTime?
+  cleanupToken     String?
+  cleanupExpiresAt DateTime?
+  cleanupAfter     DateTime
+  completedAt      DateTime?
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@unique([tenantId, idempotencyKey])
+  @@index([status, expiresAt])
+  @@index([cleanupAfter])
+  @@index([agentId])
+}
+
+enum UploadIntentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  EXPIRED
+}
+
+model KnowledgeSource {
+  id           String      @id @default(cuid())
+  agentId      String
+  url          String
+  maxDepth     Int         @default(1)
+  includePaths String[]    @default([])
+  excludePaths String[]    @default([])
+  status       IndexStatus @default(PENDING)
+  pagesIndexed Int         @default(0)
+  errorMessage String?
+  createdAt    DateTime    @default(now())
+  indexedAt    DateTime?
+
+  agent  Agent           @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  chunks DocumentChunk[]
+
+  @@index([agentId])
+}
+
+enum IndexStatus {
+  PENDING
+  INDEXING
+  INDEXED
+  FAILED
+}
+
+model DocumentChunk {
+  id            String          @id @default(cuid())
+  agentId       String
+  documentId    String?
+  sourceId      String?
+  qdrantPointId   String          @unique
+  indexGeneration String?
+  chunkIndex      Int
+  content         String          @db.Text
+  tokensCount     Int
+  sourceType      ChunkSourceType
+  sourceLabel     String?
+  createdAt       DateTime        @default(now())
+
+  document Document?        @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  source   KnowledgeSource? @relation(fields: [sourceId], references: [id], onDelete: Cascade)
+
+  @@index([agentId])
+  @@index([agentId, indexGeneration])
+  @@index([documentId])
+  @@index([sourceId])
+}
+
+enum ChunkSourceType {
+  FILE
+  URL
+}
+
+// ─────────────────────────────────────────────────────────────
+// Sessions & Messages
+// ─────────────────────────────────────────────────────────────
+
+model Session {
+  id             String    @id @default(cuid())
+  agentId        String
+  visitorId      String?
+  origin         String?
+  userAgent      String?
+  ipHash         String?
+  language       String?
+  summary        String?   @db.Text
+  bookingContext Json?
+  startedAt      DateTime  @default(now())
+  lastActiveAt   DateTime  @default(now())
+  expiresAt      DateTime
+  closedAt       DateTime?
+
+  // ── Phase 10.5: Operator Inbox + Handoff ──
+  status             SessionStatus @default(ACTIVE)
+  assignedOperatorId String?
+  handoffRequestedAt DateTime?
+  handoffReason      String?
+  visitorName        String?
+  visitorContact     String?       @db.Text
+  pageUrl            String?
+  pageReferrer       String?
+  unreadByOperator   Int           @default(0)
+  unreadByVisitor    Int           @default(0)
+  tags               String[]      @default([])
+  internalNote       String?       @db.Text
+  csatRating         Int?
+  csatComment        String?
+
+  agent    Agent     @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  messages Message[]
+
+  @@index([agentId])
+  @@index([expiresAt])
+  @@index([status, lastActiveAt])
+  @@index([assignedOperatorId])
+}
+
+enum SessionStatus {
+  ACTIVE
+  WAITING_OPERATOR
+  WITH_OPERATOR
+  RESOLVED
+  CLOSED
+}
+
+model Message {
+  id                String      @id @default(cuid())
+  sessionId         String
+  role              MessageRole
+  content           String      @db.Text
+  tokensIn          Int?
+  tokensOut         Int?
+  retrievedChunkIds String[]    @default([])
+  latencyMs         Int?
+  createdAt         DateTime    @default(now())
+
+  // ── Phase 10.5 ──
+  authorType  MessageAuthorType @default(AGENT)
+  authorId    String?
+  isInternal  Boolean           @default(false)
+  attachments Json?
+
+  session Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+  SYSTEM
+  TOOL
+}
+
+enum MessageAuthorType {
+  VISITOR
+  AGENT
+  OPERATOR
+  SYSTEM
+}
+
+// ─────────────────────────────────────────────────────────────
+// Background Jobs
+// ─────────────────────────────────────────────────────────────
+
+model Job {
+  id             String    @id @default(cuid())
+  type           JobType
+  agentId        String?
+  payload        Json
+  status         JobStatus @default(PENDING)
+  progress       Int       @default(0)
+  errorMessage   String?
+  scheduledAt    DateTime  @default(now())
+  startedAt      DateTime?
+  finishedAt     DateTime?
+  leaseToken     String?
+  leaseExpiresAt DateTime?
+  attemptCount   Int       @default(0)
+  dedupeKey      String?   @unique
+
+  @@index([status, scheduledAt])
+  @@index([status, leaseExpiresAt])
+  @@index([agentId, type, scheduledAt])
+}
+
+model IndexGeneration {
+  id                    String    @id
+  agentId               String
+  tenantId              String
+  jobId                 String
+  leaseToken            String
+  legacy                Boolean   @default(false)
+  createdAt             DateTime  @default(now())
+  publishedAt           DateTime?
+  retiredAt             DateTime?
+  cleanedAt             DateTime?
+  cleanupToken          String?
+  cleanupLeaseExpiresAt DateTime?
+
+  @@index([cleanedAt, retiredAt])
+  @@index([cleanedAt, createdAt])
+  @@index([agentId])
+}
+
+enum JobType {
+  REINDEX_AGENT
+  CRAWL_URL
+  CLEANUP_SESSIONS
+  SUMMARIZE_SESSION
+}
+
+enum JobStatus {
+  PENDING
+  RUNNING
+  DONE
+  FAILED
+  CANCELLED
+}
+
+// ─────────────────────────────────────────────────────────────
+// Phase 10.5 – Operator Inbox, Handoff, Business Hours, Anti-abuse
+// ─────────────────────────────────────────────────────────────
+
+model BusinessHours {
+  id                String  @id @default(cuid())
+  agentId           String  @unique
+  timezone          String  @default("Europe/Minsk")
+  schedule          Json // [{dayOfWeek:1, from:"09:00", to:"18:00"}, ...]
+  holidays          Json? // ["2026-01-01", ...]
+  outOfHoursMessage String? @db.Text
+  enabled           Boolean @default(false)
+
+  agent Agent @relation(fields: [agentId], references: [id], onDelete: Cascade)
+}
+
+model VisitorRateLimit {
+  id            String    @id @default(cuid())
+  agentId       String
+  visitorKey    String
+  sessionsToday Int       @default(0)
+  messagesHour  Int       @default(0)
+  blockedUntil  DateTime?
+  lastResetAt   DateTime  @default(now())
+
+  @@unique([agentId, visitorKey])
+  @@index([blockedUntil])
+}
+
+model OperatorNotification {
+  id          String             @id @default(cuid())
+  tenantId    String
+  userId      String?
+  type        NotificationType
+  payload     Json
+  channels    String[]
+  status      NotificationStatus @default(PENDING)
+  attempts    Int                @default(0)
+  createdAt   DateTime           @default(now())
+  deliveredAt DateTime?
+
+  @@index([status, createdAt])
+  @@index([tenantId])
+}
+
+enum NotificationType {
+  HANDOFF_REQUESTED
+  NEW_APPOINTMENT
+  NEW_VISITOR_MESSAGE
+  OPERATOR_MENTION
+}
+
+enum NotificationStatus {
+  PENDING
+  DELIVERED
+  FAILED
+}
+
+model CannedResponse {
+  id        String   @id @default(cuid())
+  tenantId  String
+  agentId   String?
+  shortcut  String
+  text      String   @db.Text
+  language  String?
+  createdAt DateTime @default(now())
+
+  @@unique([tenantId, shortcut])
+  @@index([tenantId])
+}
+
+model PushSubscription {
+  id        String   @id @default(cuid())
+  userId    String
+  endpoint  String   @unique
+  p256dh    String
+  auth      String
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────
+// Phase 10.6 – Booking / Appointments
+// ─────────────────────────────────────────────────────────────
+
+model Specialist {
+  id          String   @id @default(cuid())
+  tenantId    String
+  agentId     String? // null = доступен всем агентам тенанта
+  name        String
+  role        String? // "Косметолог", "Стоматолог"
+  description String?  @db.Text
+  avatarUrl   String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  services     Service[]
+  workingHours SpecialistWorkingHours[]
+  appointments Appointment[]
+
+  @@index([tenantId])
+  @@index([agentId])
+}
+
+model Service {
+  id           String   @id @default(cuid())
+  tenantId     String
+  specialistId String? // null = может оказывать любой специалист
+  name         String
+  description  String?  @db.Text
+  durationMin  Int // длительность в минутах
+  priceLabel   String? // "от 80 руб" — строкой
+  isGroup      Boolean  @default(false)
+  capacity     Int      @default(1)
+  isActive     Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  specialist   Specialist?   @relation(fields: [specialistId], references: [id], onDelete: SetNull)
+  appointments Appointment[]
+
+  @@index([tenantId])
+  @@index([specialistId])
+}
+
+model SpecialistWorkingHours {
+  id           String @id @default(cuid())
+  specialistId String
+  dayOfWeek    Int // 0=воскресенье .. 6=суббота
+  fromMinutes  Int // 540 = 09:00
+  toMinutes    Int // 1080 = 18:00
+
+  specialist Specialist @relation(fields: [specialistId], references: [id], onDelete: Cascade)
+
+  @@unique([specialistId, dayOfWeek, fromMinutes])
+}
+
+model Appointment {
+  id              String            @id @default(cuid())
+  tenantId        String
+  agentId         String?
+  sessionId       String? // откуда пришла запись
+  specialistId    String
+  serviceId       String?
+  visitorName     String
+  visitorPhone    String
+  visitorEmail    String?
+  startsAt        DateTime
+  endsAt          DateTime
+  status          AppointmentStatus @default(PENDING)
+  source          AppointmentSource @default(AGENT)
+  notes           String?           @db.Text
+  createdByUserId String? // userId оператора, если создал оператор
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+
+  specialist Specialist @relation(fields: [specialistId], references: [id])
+  service    Service?   @relation(fields: [serviceId], references: [id])
+
+  @@index([specialistId, startsAt])
+  @@index([tenantId, startsAt])
+  @@index([sessionId])
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  NO_SHOW
+}
+
+enum AppointmentSource {
+  AGENT
+  OPERATOR
+}

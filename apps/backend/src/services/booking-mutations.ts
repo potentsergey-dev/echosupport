@@ -1,7 +1,12 @@
+import { createHash } from 'node:crypto';
 import type { AppointmentStatus, Prisma } from '@prisma/client';
 import { DEFAULT_BUSINESS_TIMEZONE, isSlotWithinWorkingHours } from './slot-finder.js';
 import { prisma } from '../db/prisma.js';
-import { assertSlotCanAcceptAppointment, getAppointmentParticipantCount } from './booking.js';
+import {
+  assertSlotCanAcceptAppointment,
+  getAppointmentParticipantCount,
+  getStoredParticipantCount,
+} from './booking.js';
 import { filterServicesForSpecialist } from './specialist-services.js';
 
 interface CreateBookingInput {
@@ -18,6 +23,37 @@ interface CreateBookingInput {
   source: 'AGENT' | 'OPERATOR';
   notes?: string | null;
   createdByUserId?: string;
+  participantCount?: number | undefined;
+  bookingRequestKey?: string | undefined;
+}
+
+async function lockBookingTimezone(
+  tx: Prisma.TransactionClient,
+  tenantId: string,
+  agentId?: string | null,
+): Promise<string> {
+  const agents = agentId
+    ? await tx.$queryRaw<
+        { id: string }[]
+      >`SELECT id FROM "Agent" WHERE id=${agentId} AND "tenantId"=${tenantId} AND "isActive"=true FOR SHARE`
+    : await tx.$queryRaw<
+        { id: string }[]
+      >`SELECT id FROM "Agent" WHERE "tenantId"=${tenantId} AND "isActive"=true ORDER BY id FOR SHARE`;
+  if (agentId && !agents.length) throw new Error('BOOKING_UNAVAILABLE');
+  const hours = agents.length
+    ? await tx.businessHours.findMany({
+        where: { agentId: { in: agents.map((agent) => agent.id) } },
+        select: { agentId: true, timezone: true },
+      })
+    : [];
+  const timezones = new Set(
+    agents.map(
+      (agent) =>
+        hours.find((row) => row.agentId === agent.id)?.timezone ?? DEFAULT_BUSINESS_TIMEZONE,
+    ),
+  );
+  if (timezones.size > 1) throw new Error('BOOKING_TIMEZONE_REQUIRED');
+  return timezones.values().next().value ?? DEFAULT_BUSINESS_TIMEZONE;
 }
 
 /** All create callers serialize on the persisted specialist, even for empty slots.
@@ -25,6 +61,40 @@ interface CreateBookingInput {
 export async function createBooking(input: CreateBookingInput, db = prisma) {
   return db.$transaction(
     async (tx: Prisma.TransactionClient) => {
+      const bookingRequestHash = input.bookingRequestKey
+        ? createHash('sha256')
+            .update(
+              JSON.stringify({
+                specialistId: input.specialistId,
+                serviceId: input.serviceId,
+                startsAt: input.startsAt.toISOString(),
+                endsAt: input.endsAt.toISOString(),
+                visitorName: input.visitorName,
+                visitorPhone: input.visitorPhone,
+                visitorEmail: input.visitorEmail ?? null,
+                participantCount: input.participantCount ?? null,
+                notes: input.notes ?? null,
+                sessionId: input.sessionId ?? null,
+              }),
+            )
+            .digest('hex')
+        : null;
+      if (input.bookingRequestKey) {
+        if (input.source !== 'OPERATOR') throw new Error('BOOKING_UNAVAILABLE');
+        await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${input.tenantId + ':' + input.bookingRequestKey}, 0))::text`;
+        const previous = await tx.appointment.findFirst({
+          where: { tenantId: input.tenantId, bookingRequestKey: input.bookingRequestKey },
+          include: {
+            specialist: { select: { id: true, name: true, role: true } },
+            service: { select: { id: true, name: true, isGroup: true, capacity: true } },
+          },
+        });
+        if (previous) {
+          if (previous.bookingRequestHash !== bookingRequestHash)
+            throw new Error('BOOKING_REQUEST_CONFLICT');
+          return previous;
+        }
+      }
       const locked = await tx.$queryRaw<
         { id: string; description: string | null; agentId: string | null }[]
       >`
@@ -69,6 +139,16 @@ export async function createBooking(input: CreateBookingInput, db = prisma) {
         (s) => s.id === input.serviceId,
       );
       if (input.serviceId && !service) throw new Error('BOOKING_UNAVAILABLE');
+      const participantCount =
+        input.participantCount ??
+        (service?.isGroup ? getAppointmentParticipantCount(input.notes) : 1);
+      if (
+        !Number.isInteger(participantCount) ||
+        participantCount < 1 ||
+        participantCount > 2147483647 ||
+        (!service?.isGroup && participantCount !== 1)
+      )
+        throw new Error('BOOKING_INVALID_PARTICIPANTS');
       const duration = service?.durationMin ?? 60;
       if (
         !Number.isFinite(input.startsAt.getTime()) ||
@@ -77,6 +157,25 @@ export async function createBooking(input: CreateBookingInput, db = prisma) {
         input.endsAt.getTime() - input.startsAt.getTime() !== duration * 60_000
       )
         throw new Error('BOOKING_UNAVAILABLE');
+      const linkedSession = input.sessionId
+        ? await tx.session.findFirst({
+            where: { id: input.sessionId, agent: { tenantId: input.tenantId } },
+            select: { agentId: true },
+          })
+        : null;
+      if (input.sessionId && !linkedSession) throw new Error('BOOKING_UNAVAILABLE');
+      const businessAgentId = input.agentId ?? specialist.agentId ?? linkedSession?.agentId;
+      const timezone = await lockBookingTimezone(tx, input.tenantId, businessAgentId);
+      if (
+        !(await isSlotWithinWorkingHours(
+          input.specialistId,
+          input.startsAt,
+          input.endsAt,
+          timezone,
+          tx,
+        ))
+      )
+        throw new Error('BOOKING_OUTSIDE_HOURS');
       const existing =
         input.source === 'AGENT'
           ? await tx.appointment.findFirst({
@@ -108,7 +207,7 @@ export async function createBooking(input: CreateBookingInput, db = prisma) {
         endsAt: input.endsAt,
         isGroup: service?.isGroup ?? false,
         capacity: service?.capacity ?? 1,
-        requestedParticipants: service?.isGroup ? getAppointmentParticipantCount(input.notes) : 1,
+        requestedParticipants: participantCount,
         ...(existing ? { excludeAppointmentId: existing.id } : {}),
         db: tx,
       });
@@ -123,6 +222,7 @@ export async function createBooking(input: CreateBookingInput, db = prisma) {
             visitorName: input.visitorName,
             visitorPhone: input.visitorPhone,
             visitorEmail: input.visitorEmail ?? null,
+            participantCount,
             notes: input.notes ?? null,
             status:
               existing.visitorName === input.visitorName &&
@@ -134,13 +234,22 @@ export async function createBooking(input: CreateBookingInput, db = prisma) {
           },
           include,
         });
-      return tx.appointment.create({ data: input, include });
+      return tx.appointment.create({
+        data: {
+          ...input,
+          participantCount,
+          bookingRequestHash,
+          bookingRequestKey: input.bookingRequestKey ?? null,
+        },
+        include,
+      });
     },
     { isolationLevel: 'ReadCommitted', maxWait: 5000, timeout: 10000 },
   );
 }
 
 interface UpdateBookingInput {
+  participantCount?: number | undefined;
   status?: AppointmentStatus | undefined;
   startsAt?: Date | undefined;
   notes?: string | null | undefined;
@@ -175,6 +284,13 @@ export async function updateBooking(
         throw new Error('BOOKING_UNAVAILABLE');
       const terminal = appointment.status === 'COMPLETED' || appointment.status === 'NO_SHOW';
       const status = input.startsAt ? 'PENDING' : (input.status ?? appointment.status);
+      if (
+        appointment.status === 'CANCELLED' &&
+        status !== 'CANCELLED' &&
+        status !== 'PENDING' &&
+        status !== 'CONFIRMED'
+      )
+        throw new Error('BOOKING_UNAVAILABLE');
       if (terminal && (input.startsAt || status !== appointment.status))
         throw new Error('BOOKING_UNAVAILABLE');
       if (appointment.serviceId)
@@ -187,7 +303,22 @@ export async function updateBooking(
         ? new Date(startsAt.getTime() + (service?.durationMin ?? 60) * 60_000)
         : appointment.endsAt;
       const active = status === 'PENDING' || status === 'CONFIRMED';
-      const admission = active && (!!input.startsAt || status !== appointment.status);
+      const participantCount = input.participantCount ?? appointment.participantCount;
+      if (
+        input.participantCount !== undefined &&
+        (!Number.isInteger(input.participantCount) ||
+          input.participantCount < 1 ||
+          input.participantCount > 2147483647 ||
+          (!service?.isGroup && input.participantCount !== 1))
+      )
+        throw new Error('BOOKING_INVALID_PARTICIPANTS');
+      const resolvingLegacyCount =
+        appointment.participantCount === null && input.participantCount !== undefined;
+      const admission =
+        active &&
+        (!!input.startsAt ||
+          status !== appointment.status ||
+          (input.participantCount !== undefined && !resolvingLegacyCount));
       if (admission) {
         if (!specialist.isActive || !Number.isFinite(startsAt.getTime()) || startsAt <= new Date())
           throw new Error('BOOKING_UNAVAILABLE');
@@ -197,16 +328,20 @@ export async function updateBooking(
             (service.specialistId !== null && service.specialistId !== specialist.id))
         )
           throw new Error('BOOKING_UNAVAILABLE');
-        const agentId = appointment.agentId ?? specialist.agentId;
-        const hours = agentId
-          ? await tx.businessHours.findUnique({ where: { agentId }, select: { timezone: true } })
+        const linkedSession = appointment.sessionId
+          ? await tx.session.findFirst({
+              where: { id: appointment.sessionId, agent: { tenantId } },
+              select: { agentId: true },
+            })
           : null;
+        const agentId = appointment.agentId ?? specialist.agentId ?? linkedSession?.agentId;
+        const timezone = await lockBookingTimezone(tx, tenantId, agentId);
         if (
           !(await isSlotWithinWorkingHours(
             appointment.specialistId,
             startsAt,
             endsAt,
-            hours?.timezone ?? DEFAULT_BUSINESS_TIMEZONE,
+            timezone,
             tx,
           ))
         )
@@ -218,24 +353,25 @@ export async function updateBooking(
           endsAt,
           isGroup: service?.isGroup ?? false,
           capacity: service?.capacity ?? 1,
-          requestedParticipants: service?.isGroup
-            ? getAppointmentParticipantCount(appointment.notes)
-            : 1,
+          requestedParticipants: getStoredParticipantCount({
+            ...appointment,
+            participantCount,
+            participantCountReviewReason:
+              input.participantCount !== undefined
+                ? null
+                : appointment.participantCountReviewReason,
+          }),
           excludeAppointmentId: id,
           db: tx,
         });
       }
-      // Until participantCount is migrated, free-text edits must preserve the persisted seat count.
       const data: Prisma.AppointmentUpdateInput = { status };
-      if (input.startsAt) Object.assign(data, { startsAt, endsAt });
-      if (input.notes !== undefined) {
-        const count = getAppointmentParticipantCount(appointment.notes);
-        const hasLegacyCount = /Group participants:/i.test(appointment.notes ?? '');
-        data.notes =
-          service?.isGroup || hasLegacyCount
-            ? `Group participants: ${count}\n${(input.notes ?? '').replace(/Group participants:\s*\d+/gi, '').trim()}`.trim()
-            : input.notes;
+      if (input.participantCount !== undefined) {
+        data.participantCount = input.participantCount;
+        data.participantCountReviewReason = null;
       }
+      if (input.startsAt) Object.assign(data, { startsAt, endsAt });
+      if (input.notes !== undefined) data.notes = input.notes;
       if (input.visitorName !== undefined) data.visitorName = input.visitorName;
       if (input.visitorPhone !== undefined) data.visitorPhone = input.visitorPhone;
       if (input.visitorEmail !== undefined) data.visitorEmail = input.visitorEmail;

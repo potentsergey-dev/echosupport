@@ -423,7 +423,7 @@ describe('operator booking HTTP admission', () => {
     try {
       await prisma.appointment.update({
         where: { id: f.booking.id },
-        data: { notes: 'Group participants: 2' },
+        data: { participantCount: 2, notes: 'Group participants: 2' },
       });
       await createBooking({
         ...f.input,
@@ -450,7 +450,7 @@ describe('operator booking HTTP admission', () => {
     try {
       await prisma.appointment.update({
         where: { id: f.booking.id },
-        data: { notes: 'Group participants: 2' },
+        data: { participantCount: 2, notes: 'Group participants: 2' },
       });
       const headers = { authorization: `Bearer ${f.token()}` };
       const url = `/api/v1/operator/appointments/${f.booking.id}`;
@@ -519,6 +519,221 @@ describe('operator booking HTTP admission', () => {
       expect(
         (await prisma.appointment.findUniqueOrThrow({ where: { id: f.booking.id } })).startsAt,
       ).toEqual(new Date('2099-12-02T09:00:00Z'));
+    } finally {
+      await f.app.close();
+    }
+  });
+});
+
+describe('numeric participants and request recovery', () => {
+  it('preserves numeric seats through legacy notes-only writes', async () => {
+    const f = await fixture(4);
+    const a = await createBooking({ ...f.input, participantCount: 3 });
+    await prisma.$executeRaw`UPDATE "Appointment" SET notes='changed by old revision' WHERE id=${a.id}`;
+    const after = await prisma.appointment.findUniqueOrThrow({ where: { id: a.id } });
+    expect(after.participantCount).toBe(3);
+    expect(after.notes).toBe('Group participants: 3\nchanged by old revision');
+    await expect(createBooking({ ...f.input, participantCount: 2 })).rejects.toThrow('SLOT_FULL');
+  });
+  it('checks explicit participant edits atomically and does not infer them from notes', async () => {
+    const f = await fixture(3);
+    const a = await createBooking({ ...f.input, participantCount: 2 });
+    await createBooking({ ...f.input, participantCount: 1 });
+    await expect(updateBooking(f.tenant.id, a.id, { participantCount: 3 })).rejects.toThrow(
+      'SLOT_FULL',
+    );
+    expect((await updateBooking(f.tenant.id, a.id, { notes: 'free text' })).participantCount).toBe(
+      2,
+    );
+    expect((await updateBooking(f.tenant.id, a.id, { participantCount: 1 })).participantCount).toBe(
+      1,
+    );
+  });
+  it('recovers concurrent operator retries and the original result after cancellation', async () => {
+    const f = await fixture(4);
+    const input = { ...f.input, bookingRequestKey: randomUUID(), participantCount: 1 };
+    const [a, b] = await Promise.all(peers.map((db) => createBooking(input, db)));
+    expect(a!.id).toBe(b!.id);
+    await updateBooking(f.tenant.id, a!.id, { status: 'CANCELLED' });
+    expect((await createBooking(input)).status).toBe('CANCELLED');
+    await expect(createBooking({ ...input, visitorName: 'Changed' })).rejects.toThrow(
+      'BOOKING_REQUEST_CONFLICT',
+    );
+    expect(await prisma.appointment.count({ where: { tenantId: f.tenant.id } })).toBe(1);
+  });
+  it('does not permit capacity to fall below committed occupancy', async () => {
+    const f = await fixture(4);
+    await createBooking({ ...f.input, participantCount: 3 });
+    await expect(
+      prisma.service.update({ where: { id: f.service.id }, data: { capacity: 2 } }),
+    ).rejects.toThrow();
+    expect((await prisma.service.findUniqueOrThrow({ where: { id: f.service.id } })).capacity).toBe(
+      4,
+    );
+  });
+  it('serializes an old revision INSERT against a modern create', async () => {
+    const f = await fixture(2);
+    const oldId = randomUUID();
+    const results = await Promise.allSettled([
+      peers[0]!
+        .$executeRaw`INSERT INTO "Appointment" (id,"tenantId","specialistId","serviceId","visitorName","visitorPhone","startsAt","endsAt",status,source,notes,"updatedAt")
+        VALUES (${oldId},${f.tenant.id},${f.specialist.id},${f.service.id},'Synthetic','+000000001',${f.input.startsAt},${f.input.endsAt},'PENDING','OPERATOR','Group participants: 2',NOW())`,
+      createBooking({ ...f.input, participantCount: 2 }, peers[1]),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const rows = await prisma.appointment.findMany({ where: { tenantId: f.tenant.id } });
+    expect(rows.reduce((sum, row) => sum + (row.participantCount ?? 999), 0)).toBe(2);
+  });
+  it('serializes capacity reduction against admission', async () => {
+    const f = await fixture(3);
+    const results = await Promise.allSettled([
+      peers[0]!.service.update({ where: { id: f.service.id }, data: { capacity: 1 } }),
+      createBooking({ ...f.input, participantCount: 2 }, peers[1]),
+    ]);
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    const service = await prisma.service.findUniqueOrThrow({ where: { id: f.service.id } });
+    const rows = await prisma.appointment.findMany({ where: { tenantId: f.tenant.id } });
+    expect(rows.reduce((sum, row) => sum + (row.participantCount ?? 999), 0)).toBeLessThanOrEqual(
+      service.capacity,
+    );
+  });
+  it.each(['working-hours', 'first-timezone'] as const)(
+    'waits for concurrent %s configuration before admission',
+    async (kind) => {
+      const f = await fixture();
+      await prisma.specialistWorkingHours.updateMany({
+        where: { specialistId: f.specialist.id },
+        data: { fromMinutes: 9 * 60, toMinutes: 10 * 60 },
+      });
+      let ready!: () => void;
+      let release!: () => void;
+      const entered = new Promise<void>((resolve) => {
+        ready = resolve;
+      });
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const pid = (await peers[1]!.$queryRaw<{ pid: number }[]>`SELECT pg_backend_pid() AS pid`)[0]!
+        .pid;
+      const changing = peers[0]!.$transaction(
+        async (tx) => {
+          if (kind === 'working-hours')
+            await tx.specialistWorkingHours.deleteMany({
+              where: { specialistId: f.specialist.id },
+            });
+          else
+            await tx.businessHours.create({
+              data: { agentId: f.agent.id, timezone: 'America/New_York', schedule: [] },
+            });
+          ready();
+          await gate;
+        },
+        { timeout: 10000 },
+      );
+      await entered;
+      const admission = createBooking(
+        {
+          ...f.input,
+          startsAt: new Date('2099-12-01T06:00:00Z'),
+          endsAt: new Date('2099-12-01T07:00:00Z'),
+        },
+        peers[1],
+      );
+      // Attach rejection handler immediately; this operation is expected to be denied.
+      const outcome = admission.then(
+        () => 'admitted',
+        (error: Error) => error.message,
+      );
+      try {
+        let waiting = false;
+        for (let attempt = 0; attempt < 50 && !waiting; attempt++) {
+          const rows = await prisma.$queryRaw<
+            { waiting: boolean }[]
+          >`SELECT wait_event_type='Lock' AS waiting FROM pg_stat_activity WHERE pid=${pid}`;
+          waiting = rows[0]?.waiting ?? false;
+          if (!waiting) await new Promise((resolve) => setTimeout(resolve, 20));
+        }
+        expect(waiting).toBe(true);
+      } finally {
+        release();
+        await changing;
+      }
+      expect(await outcome).toBe('BOOKING_OUTSIDE_HOURS');
+    },
+  );
+  it('uses business timezone inside creation and reschedule', async () => {
+    const f = await fixture();
+    await prisma.businessHours.create({
+      data: { agentId: f.agent.id, timezone: 'America/New_York', schedule: [] },
+    });
+    await prisma.specialistWorkingHours.updateMany({
+      where: { specialistId: f.specialist.id },
+      data: { fromMinutes: 9 * 60, toMinutes: 10 * 60 },
+    });
+    // December: 14:00Z is 09:00 in New York, outside the Minsk range.
+    const a = await createBooking({
+      ...f.input,
+      startsAt: new Date('2099-12-01T14:00:00Z'),
+      endsAt: new Date('2099-12-01T15:00:00Z'),
+    });
+    await expect(createBooking(f.input)).rejects.toThrow('BOOKING_OUTSIDE_HOURS');
+    expect(
+      (await updateBooking(f.tenant.id, a.id, { startsAt: new Date('2099-12-02T14:00:00Z') }))
+        .status,
+    ).toBe('PENDING');
+  });
+  it('requires an operator request key and recovers HTTP POST retries', async () => {
+    const f = await httpFixture(4);
+    try {
+      const payload = {
+        specialistId: f.specialist.id,
+        serviceId: f.service.id,
+        visitorName: 'Synthetic visitor',
+        visitorPhone: '+000000001',
+        startsAt: '2099-12-02T09:00:00Z',
+        participantCount: 2,
+      };
+      const url = '/api/v1/operator/appointments';
+      const headers = { authorization: `Bearer ${f.token()}`, 'idempotency-key': randomUUID() };
+      expect(
+        (
+          await f.app.inject({
+            method: 'POST',
+            url,
+            payload,
+            headers: { authorization: headers.authorization },
+          })
+        ).statusCode,
+      ).toBe(400);
+      const a = await f.app.inject({ method: 'POST', url, payload, headers });
+      const b = await f.app.inject({ method: 'POST', url, payload, headers });
+      expect(a.statusCode).toBe(201);
+      expect(b.statusCode).toBe(201);
+      expect(a.json<{ id: string }>().id).toBe(b.json<{ id: string }>().id);
+      expect(a.json<{ participantCount: number }>().participantCount).toBe(2);
+      const lookup = `/api/v1/operator/appointment-requests/${headers['idempotency-key']}`;
+      expect((await f.app.inject({ method: 'GET', url: lookup })).statusCode).toBe(401);
+      expect(
+        (
+          await f.app.inject({
+            method: 'GET',
+            url: lookup,
+            headers: { authorization: `Bearer ${f.token('VIEWER')}` },
+          })
+        ).statusCode,
+      ).toBe(403);
+      expect(
+        (
+          await f.app.inject({
+            method: 'GET',
+            url: lookup,
+            headers: { authorization: `Bearer ${f.token('OWNER', randomUUID())}` },
+          })
+        ).statusCode,
+      ).toBe(404);
+      expect((await f.app.inject({ method: 'GET', url: lookup, headers })).json()).toMatchObject({
+        id: a.json<{ id: string }>().id,
+      });
     } finally {
       await f.app.close();
     }

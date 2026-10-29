@@ -94,7 +94,9 @@ export async function request<T>(path: string, init?: RequestInit): Promise<T> {
     const body = (await res.json().catch(() => ({ error: res.statusText }))) as {
       error?: unknown;
     };
-    throw new Error(formatApiError(body.error, res.statusText));
+    throw Object.assign(new Error(formatApiError(body.error, res.statusText)), {
+      statusCode: res.status,
+    });
   }
 
   if (res.status === 204) return undefined as T;
@@ -465,18 +467,44 @@ export function listAppointments(params?: {
   return request(`/operator/appointments${q ? `?${q}` : ''}`);
 }
 
-export function createAppointment(data: {
-  specialistId?: string;
-  serviceId?: string;
-  visitorName: string;
-  visitorPhone: string;
-  visitorEmail?: string;
-  startsAt: string;
-  notes?: string;
-  sessionId?: string;
-}): Promise<Appointment> {
+const PENDING_BOOKING_KEY = 'echosupport.pending-booking-request';
+export function getPendingBookingRequestKey(): string {
+  const current = sessionStorage.getItem(PENDING_BOOKING_KEY);
+  if (current) return current;
+  const key = crypto.randomUUID();
+  sessionStorage.setItem(PENDING_BOOKING_KEY, key);
+  return key;
+}
+export function clearPendingBookingRequestKey(key: string): void {
+  if (sessionStorage.getItem(PENDING_BOOKING_KEY) === key)
+    sessionStorage.removeItem(PENDING_BOOKING_KEY);
+}
+export async function findBookingRequest(key: string): Promise<Appointment | null> {
+  try {
+    return await request<Appointment>(`/operator/appointment-requests/${key}`);
+  } catch (error) {
+    if (error instanceof Error && 'statusCode' in error && error.statusCode === 404) return null;
+    throw error;
+  }
+}
+
+export function createAppointment(
+  data: {
+    specialistId?: string;
+    serviceId?: string;
+    visitorName: string;
+    visitorPhone: string;
+    visitorEmail?: string;
+    startsAt: string;
+    participantCount?: number;
+    notes?: string;
+    sessionId?: string;
+  },
+  requestKey: string,
+): Promise<Appointment> {
   return request('/operator/appointments', {
     method: 'POST',
+    headers: { 'Idempotency-Key': requestKey },
     body: JSON.stringify(data),
   });
 }
@@ -502,6 +530,7 @@ export function rescheduleAppointment(id: string, startsAt: string): Promise<App
 export function updateAppointment(
   id: string,
   data: Partial<{
+    participantCount: number;
     notes: string;
     visitorName: string;
     visitorPhone: string;

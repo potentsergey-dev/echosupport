@@ -125,21 +125,33 @@ const servicesRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       const nextIsGroup = body.isGroup ?? existing.isGroup;
-      const service = await prisma.service.update({
-        where: { id },
-        data: {
-          ...(body.name !== undefined && { name: body.name }),
-          ...(body.description !== undefined && { description: body.description }),
-          ...(body.durationMin !== undefined && { durationMin: body.durationMin }),
-          ...(body.priceLabel !== undefined && { priceLabel: body.priceLabel }),
-          ...(body.specialistId !== undefined && { specialistId: body.specialistId }),
-          ...(body.isGroup !== undefined && { isGroup: body.isGroup }),
-          ...(nextIsGroup === false && { capacity: 1 }),
-          ...(nextIsGroup !== false && body.capacity !== undefined && { capacity: body.capacity }),
-          ...(body.isActive !== undefined && { isActive: body.isActive }),
-        },
-        include: { specialist: { select: { id: true, name: true } } },
-      });
+      const service = await prisma.service
+        .update({
+          where: { id },
+          data: {
+            ...(body.name !== undefined && { name: body.name }),
+            ...(body.description !== undefined && { description: body.description }),
+            ...(body.durationMin !== undefined && { durationMin: body.durationMin }),
+            ...(body.priceLabel !== undefined && { priceLabel: body.priceLabel }),
+            ...(body.specialistId !== undefined && { specialistId: body.specialistId }),
+            ...(body.isGroup !== undefined && { isGroup: body.isGroup }),
+            ...(nextIsGroup === false && { capacity: 1 }),
+            ...(nextIsGroup !== false &&
+              body.capacity !== undefined && { capacity: body.capacity }),
+            ...(body.isActive !== undefined && { isActive: body.isActive }),
+          },
+          include: { specialist: { select: { id: true, name: true } } },
+        })
+        .catch((error: unknown) => {
+          if (error instanceof Error && error.message.includes('BOOKING_CAPACITY_BELOW_OCCUPANCY'))
+            throw Object.assign(
+              new Error(
+                'Capacity cannot be lower than existing bookings. Review appointments first.',
+              ),
+              { statusCode: 409 },
+            );
+          throw error;
+        });
 
       return service;
     },

@@ -22,7 +22,6 @@ import { type MessageSummary } from '../../services/realtime-hub.js';
 import { getAgentSecrets } from '../../services/agent-secrets.js';
 import { chatCompletion } from '../../adapters/llm/openrouter.js';
 import { env } from '../../config/env.js';
-import { isSlotWithinWorkingHours } from '../../services/slot-finder.js';
 import { buildSuggestedReplyTranscript } from '../../services/suggested-reply.js';
 import { APPOINTMENT_STATUSES, getBookableServiceForSpecialist } from '../../services/booking.js';
 import { summarizeError } from '../../services/error-sanitizer.js';
@@ -653,6 +652,27 @@ Only output the reply text — no meta-commentary.`;
   );
 
   // ── POST /operator/appointments ────────────────────────────────────────────
+  fastify.get(
+    '/appointment-requests/:key',
+    { preHandler: [operatorAuth, bookingFeature] },
+    async (req, reply) => {
+      const key = z
+        .string()
+        .uuid()
+        .safeParse((req.params as { key: string }).key);
+      if (!key.success) return reply.status(400).send({ error: 'Invalid request key' });
+      const appointment = await prisma.appointment.findFirst({
+        where: { tenantId: req.user.tenantId, bookingRequestKey: key.data },
+        include: {
+          specialist: { select: { id: true, name: true } },
+          service: { select: { id: true, name: true, isGroup: true, capacity: true } },
+        },
+      });
+      if (!appointment) return reply.status(404).send({ error: 'Appointment not found' });
+      return reply.send(appointment);
+    },
+  );
+
   const CreateAppointmentSchema = z.object({
     specialistId: z.string(),
     serviceId: z.string().optional(),
@@ -660,6 +680,7 @@ Only output the reply text — no meta-commentary.`;
     visitorPhone: z.string().regex(/^\+?[\d\s\-().]{7,20}$/, 'Invalid phone'),
     visitorEmail: z.string().email().optional(),
     startsAt: z.string().datetime(),
+    participantCount: z.number().int().min(1).max(2147483647).optional(),
     notes: z.string().max(5000).optional(),
     sessionId: z.string().optional(),
   });
@@ -668,6 +689,8 @@ Only output the reply text — no meta-commentary.`;
     '/appointments',
     { preHandler: [operatorAuth, bookingFeature] },
     async (req, reply) => {
+      const key = z.string().uuid().safeParse(req.headers['idempotency-key']);
+      if (!key.success) return reply.status(400).send({ error: 'Idempotency-Key UUID required' });
       const result = CreateAppointmentSchema.safeParse(req.body);
       if (!result.success)
         return reply.status(400).send({ error: result.error.flatten().fieldErrors });
@@ -680,6 +703,7 @@ Only output the reply text — no meta-commentary.`;
         visitorEmail,
         startsAt: startsAtStr,
         notes,
+        participantCount,
         sessionId,
       } = result.data;
 
@@ -698,6 +722,10 @@ Only output the reply text — no meta-commentary.`;
         return reply.status(400).send({ error: 'Service not found for this specialist' });
       }
 
+      if (bookableService.isGroup && participantCount === undefined)
+        return reply
+          .status(400)
+          .send({ error: 'participantCount required for group appointments' });
       const startsAt = new Date(startsAtStr);
       if (startsAt.getTime() < Date.now()) {
         return reply.status(400).send({ error: 'Appointment time must be in the future' });
@@ -712,14 +740,6 @@ Only output the reply text — no meta-commentary.`;
         if (!session) return reply.status(400).send({ error: 'Session not found' });
       }
 
-      // Validate slot is within specialist's working hours
-      const withinHours = await isSlotWithinWorkingHours(specialistId, startsAt, endsAt);
-      if (!withinHours) {
-        return reply
-          .status(400)
-          .send({ error: "The requested time is outside the specialist's working hours." });
-      }
-
       const appointment = await createBooking({
         tenantId: req.user.tenantId,
         specialistId,
@@ -730,6 +750,8 @@ Only output the reply text — no meta-commentary.`;
         startsAt,
         endsAt,
         source: 'OPERATOR',
+        bookingRequestKey: key.data,
+        participantCount,
         notes: notes ?? null,
         createdByUserId: req.user.sub,
         sessionId: sessionId ?? null,
@@ -737,7 +759,14 @@ Only output the reply text — no meta-commentary.`;
         if (
           err.message === 'SLOT_TAKEN' ||
           err.message === 'SLOT_FULL' ||
-          err.message === 'BOOKING_UNAVAILABLE'
+          [
+            'BOOKING_UNAVAILABLE',
+            'BOOKING_PARTICIPANTS_REVIEW',
+            'BOOKING_INVALID_PARTICIPANTS',
+            'BOOKING_TIMEZONE_REQUIRED',
+            'BOOKING_REQUEST_CONFLICT',
+            'BOOKING_OUTSIDE_HOURS',
+          ].includes(err.message)
         )
           return err.message;
         throw err;
@@ -746,7 +775,7 @@ Only output the reply text — no meta-commentary.`;
       if (
         appointment === 'SLOT_TAKEN' ||
         appointment === 'SLOT_FULL' ||
-        appointment === 'BOOKING_UNAVAILABLE'
+        typeof appointment === 'string'
       ) {
         return reply.status(409).send({
           error:
@@ -774,7 +803,17 @@ Only output the reply text — no meta-commentary.`;
         if (code === 'BOOKING_NOT_FOUND')
           return reply.status(404).send({ error: 'Appointment not found' });
         if (
-          ['BOOKING_UNAVAILABLE', 'BOOKING_OUTSIDE_HOURS', 'SLOT_TAKEN', 'SLOT_FULL'].includes(code)
+          [
+            'BOOKING_UNAVAILABLE',
+            'BOOKING_PARTICIPANTS_REVIEW',
+            'BOOKING_INVALID_PARTICIPANTS',
+            'BOOKING_TIMEZONE_REQUIRED',
+            'BOOKING_REQUEST_CONFLICT',
+            'BOOKING_OUTSIDE_HOURS',
+            'BOOKING_OUTSIDE_HOURS',
+            'SLOT_TAKEN',
+            'SLOT_FULL',
+          ].includes(code)
         )
           return reply
             .status(409)
@@ -808,7 +847,17 @@ Only output the reply text — no meta-commentary.`;
             .status(400)
             .send({ error: "The requested time is outside the specialist's working hours." });
         if (
-          ['BOOKING_UNAVAILABLE', 'BOOKING_OUTSIDE_HOURS', 'SLOT_TAKEN', 'SLOT_FULL'].includes(code)
+          [
+            'BOOKING_UNAVAILABLE',
+            'BOOKING_PARTICIPANTS_REVIEW',
+            'BOOKING_INVALID_PARTICIPANTS',
+            'BOOKING_TIMEZONE_REQUIRED',
+            'BOOKING_REQUEST_CONFLICT',
+            'BOOKING_OUTSIDE_HOURS',
+            'BOOKING_OUTSIDE_HOURS',
+            'SLOT_TAKEN',
+            'SLOT_FULL',
+          ].includes(code)
         )
           return reply
             .status(409)
@@ -841,7 +890,17 @@ Only output the reply text — no meta-commentary.`;
             .status(400)
             .send({ error: "The requested time is outside the specialist's working hours." });
         if (
-          ['BOOKING_UNAVAILABLE', 'BOOKING_OUTSIDE_HOURS', 'SLOT_TAKEN', 'SLOT_FULL'].includes(code)
+          [
+            'BOOKING_UNAVAILABLE',
+            'BOOKING_PARTICIPANTS_REVIEW',
+            'BOOKING_INVALID_PARTICIPANTS',
+            'BOOKING_TIMEZONE_REQUIRED',
+            'BOOKING_REQUEST_CONFLICT',
+            'BOOKING_OUTSIDE_HOURS',
+            'BOOKING_OUTSIDE_HOURS',
+            'SLOT_TAKEN',
+            'SLOT_FULL',
+          ].includes(code)
         )
           return reply
             .status(409)
@@ -859,6 +918,7 @@ Only output the reply text — no meta-commentary.`;
       const { id } = req.params as { id: string };
       const schema = z.object({
         notes: z.string().max(5000).optional().nullable(),
+        participantCount: z.number().int().min(1).max(2147483647).optional(),
         visitorName: z.string().max(200).optional(),
         visitorPhone: z.string().max(50).optional(),
         visitorEmail: z.string().email().optional().nullable(),
@@ -879,7 +939,17 @@ Only output the reply text — no meta-commentary.`;
             .status(400)
             .send({ error: "The requested time is outside the specialist's working hours." });
         if (
-          ['BOOKING_UNAVAILABLE', 'BOOKING_OUTSIDE_HOURS', 'SLOT_TAKEN', 'SLOT_FULL'].includes(code)
+          [
+            'BOOKING_UNAVAILABLE',
+            'BOOKING_PARTICIPANTS_REVIEW',
+            'BOOKING_INVALID_PARTICIPANTS',
+            'BOOKING_TIMEZONE_REQUIRED',
+            'BOOKING_REQUEST_CONFLICT',
+            'BOOKING_OUTSIDE_HOURS',
+            'BOOKING_OUTSIDE_HOURS',
+            'SLOT_TAKEN',
+            'SLOT_FULL',
+          ].includes(code)
         )
           return reply
             .status(409)

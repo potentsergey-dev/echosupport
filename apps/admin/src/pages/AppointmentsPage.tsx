@@ -1,9 +1,12 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { PlusIcon, CheckIcon, XIcon, CalendarIcon, PencilIcon } from 'lucide-react';
 import {
   listAppointments,
   createAppointment,
+  getPendingBookingRequestKey,
+  clearPendingBookingRequestKey,
+  findBookingRequest,
   confirmAppointment,
   cancelAppointment,
   rescheduleAppointment,
@@ -146,24 +149,17 @@ function sortAppointments(appointments: Appointment[]): Appointment[] {
 }
 
 function getGroupParticipants(appt: Appointment): number {
+  if (appt.participantCount === null || appt.participantCountReviewReason) return 0;
+  if (appt.participantCount !== undefined) return appt.participantCount;
   if (!appt.service?.isGroup) return 1;
   const match = /Group participants:\s*(\d+)/i.exec(appt.notes ?? '');
-  const count = match ? Number(match[1]) : 1;
-  return Number.isInteger(count) && count > 0 ? count : 1;
-}
-
-function setGroupParticipantsInNotes(notes: string | null, participants: number): string {
-  const nextLine = `Group participants: ${participants}`;
-  const current = notes?.trim() ?? '';
-  if (/Group participants:\s*\d+/i.test(current)) {
-    return current.replace(/Group participants:\s*\d+/i, nextLine);
-  }
-  return current ? `${nextLine}\n${current}` : nextLine;
+  return match ? Number(match[1]) : 1;
 }
 
 function serviceLabel(appt: Appointment): string {
   const name = appt.service?.name ?? '—';
   if (!appt.service?.isGroup) return name;
+  if (getGroupParticipants(appt) === 0) return `${name} · требуется проверка участников`;
   return `${name} · ${getGroupParticipants(appt)} чел.`;
 }
 
@@ -235,16 +231,36 @@ function CreateAppointmentModal({
 }) {
   const { addToast } = useToastContext();
   const qc = useQueryClient();
+  const [requestKey] = useState(getPendingBookingRequestKey);
+  const requestStatus = useQuery({
+    queryKey: ['booking-request', requestKey],
+    queryFn: () => findBookingRequest(requestKey),
+    retry: false,
+  });
+  useEffect(() => {
+    if (!requestStatus.data) return;
+    clearPendingBookingRequestKey(requestKey);
+    addToast('Найдена ранее созданная запись. Проверьте её в списке записей.', 'success');
+    void qc.invalidateQueries({ queryKey: ['appointments'] });
+    void qc.invalidateQueries({ queryKey: ['appointments-schedule'] });
+    onClose();
+  }, [requestStatus.data, requestKey, addToast, qc, onClose]);
   const [specialistId, setSpecialistId] = useState('');
   const [serviceId, setServiceId] = useState('');
   const [visitorName, setVisitorName] = useState('');
   const [visitorPhone, setVisitorPhone] = useState('');
   const [startsAt, setStartsAt] = useState('');
   const [notes, setNotes] = useState('');
+  const [participantCount, setParticipantCount] = useState(1);
 
   const activeSpecialists = specialists.filter((s) => s.isActive);
   const filteredServices = services.filter(
-    (s) => !specialistId || !s.specialistId || s.specialistId === specialistId,
+    (s) =>
+      !Number.isInteger(participantCount) ||
+      participantCount < 1 ||
+      !specialistId ||
+      !s.specialistId ||
+      s.specialistId === specialistId,
   );
   const selectedSpecialist = specialists.find((s) => s.id === specialistId);
   const selectedService = services.find((s) => s.id === serviceId);
@@ -252,15 +268,21 @@ function CreateAppointmentModal({
 
   const mutation = useMutation({
     mutationFn: () =>
-      createAppointment({
-        ...(specialistId ? { specialistId } : {}),
-        ...(serviceId ? { serviceId } : {}),
-        visitorName,
-        visitorPhone,
-        startsAt: new Date(startsAt).toISOString(),
-        ...(notes ? { notes } : {}),
-      }),
+      createAppointment(
+        {
+          ...(specialistId ? { specialistId } : {}),
+          ...(serviceId ? { serviceId } : {}),
+          participantCount: selectedService?.isGroup ? participantCount : 1,
+          visitorName,
+          visitorPhone,
+          startsAt: new Date(startsAt).toISOString(),
+          ...(notes ? { notes } : {}),
+        },
+        requestKey,
+      ),
+    retry: false,
     onSuccess: () => {
+      clearPendingBookingRequestKey(requestKey);
       addToast('Запись создана', 'success');
       void qc.invalidateQueries({ queryKey: ['appointments'] });
       void qc.invalidateQueries({ queryKey: ['appointments-schedule'] });
@@ -268,6 +290,7 @@ function CreateAppointmentModal({
     },
     onError: (err: Error) => {
       addToast(err.message, 'error');
+      void requestStatus.refetch();
     },
   });
 
@@ -275,6 +298,19 @@ function CreateAppointmentModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
       <div className="w-full max-w-md rounded-xl bg-white p-6 shadow-xl">
         <h2 className="mb-4 text-lg font-semibold text-gray-900">Новая запись</h2>
+        {requestStatus.isError && (
+          <p role="alert">
+            Не удалось проверить предыдущую отправку.{' '}
+            <button
+              type="button"
+              onClick={() => {
+                void requestStatus.refetch();
+              }}
+            >
+              Повторить проверку
+            </button>
+          </p>
+        )}
         <div className="space-y-3">
           <div>
             <Label htmlFor="ca-specialist">Специалист</Label>
@@ -341,6 +377,19 @@ function CreateAppointmentModal({
               />
             </div>
           </div>
+          {selectedService?.isGroup && (
+            <div>
+              <Label htmlFor="ca-participants">Количество участников</Label>
+              <Input
+                id="ca-participants"
+                type="number"
+                min={1}
+                max={selectedService.capacity ?? 1}
+                value={participantCount}
+                onChange={(event) => setParticipantCount(Number(event.target.value))}
+              />
+            </div>
+          )}
           <div>
             <Label htmlFor="ca-time">Дата и время *</Label>
             <input
@@ -373,7 +422,17 @@ function CreateAppointmentModal({
           </Button>
           <Button
             loading={mutation.isPending}
-            disabled={!specialistId || !visitorName.trim() || !visitorPhone.trim() || !startsAt}
+            disabled={
+              requestStatus.isPending ||
+              requestStatus.isError ||
+              !!requestStatus.data ||
+              !Number.isInteger(participantCount) ||
+              participantCount < 1 ||
+              !specialistId ||
+              !visitorName.trim() ||
+              !visitorPhone.trim() ||
+              !startsAt
+            }
             onClick={() => mutation.mutate()}
           >
             Создать
@@ -406,7 +465,10 @@ function EditAppointmentModal({
       updateAppointment(appointment.id, {
         visitorName,
         visitorPhone,
-        notes: isGroup ? setGroupParticipantsInNotes(notes, participants) : notes,
+        notes,
+        ...(isGroup && participants !== getGroupParticipants(appointment)
+          ? { participantCount: participants }
+          : {}),
       }),
     onSuccess: () => {
       addToast('Запись обновлена', 'success');

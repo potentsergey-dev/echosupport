@@ -1211,12 +1211,19 @@ export async function executeTool(
         startsAt,
         endsAt,
         source: 'AGENT',
+        participantCount: requestedParticipants,
         notes: bookableService.isGroup ? `Group participants: ${requestedParticipants}` : null,
       }).catch((err: Error) => {
         if (
           err.message === 'SLOT_TAKEN' ||
           err.message === 'SLOT_FULL' ||
-          err.message === 'BOOKING_UNAVAILABLE'
+          [
+            'BOOKING_UNAVAILABLE',
+            'BOOKING_PARTICIPANTS_REVIEW',
+            'BOOKING_INVALID_PARTICIPANTS',
+            'BOOKING_TIMEZONE_REQUIRED',
+            'BOOKING_OUTSIDE_HOURS',
+          ].includes(err.message)
         )
           return err.message;
         throw err;
@@ -1225,7 +1232,7 @@ export async function executeTool(
       if (
         appointment === 'SLOT_TAKEN' ||
         appointment === 'SLOT_FULL' ||
-        appointment === 'BOOKING_UNAVAILABLE'
+        typeof appointment === 'string'
       ) {
         return {
           result: JSON.stringify({
