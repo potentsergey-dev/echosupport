@@ -68,7 +68,6 @@ export async function createBooking(input: CreateBookingInput, db = prisma) {
                 specialistId: input.specialistId,
                 serviceId: input.serviceId,
                 startsAt: input.startsAt.toISOString(),
-                endsAt: input.endsAt.toISOString(),
                 visitorName: input.visitorName,
                 visitorPhone: input.visitorPhone,
                 visitorEmail: input.visitorEmail ?? null,
