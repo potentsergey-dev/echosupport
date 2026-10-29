@@ -3,7 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { afterAll, afterEach, describe, expect, it } from 'vitest';
 import { prisma } from '../db/prisma.js';
-import { createBooking } from '../services/booking-mutations.js';
+import { confirmBooking, createBooking, updateBooking } from '../services/booking-mutations.js';
 
 const peers = [0, 1].map(
   () =>
@@ -37,7 +37,17 @@ async function fixture(capacity = 1) {
     ),
   );
   const specialist = await prisma.specialist.create({
-    data: { tenantId: tenant.id, name: 'Synthetic' },
+    data: {
+      tenantId: tenant.id,
+      name: 'Synthetic',
+      workingHours: {
+        create: Array.from({ length: 7 }, (_, dayOfWeek) => ({
+          dayOfWeek,
+          fromMinutes: 0,
+          toMinutes: 1440,
+        })),
+      },
+    },
   });
   const service = await prisma.service.create({
     data: {
@@ -210,5 +220,109 @@ describe('shared booking creation with independent PostgreSQL connections', () =
       data: { expiresAt: new Date(0) },
     });
     await expect(createBooking(f.visitor(0))).rejects.toThrow('BOOKING_UNAVAILABLE');
+  });
+});
+
+describe('booking confirmation admission', () => {
+  it('rejects reactivation when another booking occupies the slot', async () => {
+    const f = await fixture();
+    const old = await prisma.appointment.create({ data: { ...f.input, status: 'CANCELLED' } });
+    await createBooking(f.input);
+    await expect(confirmBooking(f.tenant.id, old.id)).rejects.toThrow('SLOT_TAKEN');
+    expect((await prisma.appointment.findUniqueOrThrow({ where: { id: old.id } })).status).toBe(
+      'CANCELLED',
+    );
+  });
+  it('counts all participants when reactivating a group', async () => {
+    const f = await fixture(3);
+    const old = await prisma.appointment.create({
+      data: { ...f.input, status: 'CANCELLED', notes: 'Group participants: 2' },
+    });
+    await createBooking({ ...f.input, notes: 'Group participants: 2' });
+    await expect(confirmBooking(f.tenant.id, old.id)).rejects.toThrow('SLOT_FULL');
+  });
+  it('serializes reactivation against creation on independent connections', async () => {
+    const f = await fixture();
+    const old = await prisma.appointment.create({ data: { ...f.input, status: 'CANCELLED' } });
+    const results = await Promise.allSettled([
+      confirmBooking(f.tenant.id, old.id, peers[0]),
+      createBooking(f.input, peers[1]),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+    expect(
+      await prisma.appointment.count({
+        where: { specialistId: f.specialist.id, status: { in: ['PENDING', 'CONFIRMED'] } },
+      }),
+    ).toBe(1);
+  });
+  it('does not expose or change another tenant booking', async () => {
+    const f = await fixture();
+    const old = await prisma.appointment.create({ data: { ...f.input, status: 'CANCELLED' } });
+    await expect(confirmBooking(randomUUID(), old.id)).rejects.toThrow('BOOKING_NOT_FOUND');
+  });
+  it('keeps confirmation idempotent and terminal outcomes protected', async () => {
+    const f = await fixture();
+    const old = await createBooking(f.input);
+    expect((await confirmBooking(f.tenant.id, old.id)).status).toBe('CONFIRMED');
+    expect((await confirmBooking(f.tenant.id, old.id)).status).toBe('CONFIRMED');
+    await prisma.appointment.update({ where: { id: old.id }, data: { status: 'COMPLETED' } });
+    await expect(confirmBooking(f.tenant.id, old.id)).rejects.toThrow('BOOKING_UNAVAILABLE');
+  });
+});
+
+describe('serialized operator edits', () => {
+  it('preserves group seats on notes replacement and cancellation', async () => {
+    const f = await fixture(3);
+    const booking = await createBooking({ ...f.input, notes: 'Group participants: 2' });
+    const edited = await updateBooking(f.tenant.id, booking.id, {
+      notes: 'Group participants: 1 new note',
+    });
+    expect(edited.notes).toBe('Group participants: 2\nnew note');
+    const cancelled = await updateBooking(f.tenant.id, booking.id, {
+      status: 'CANCELLED',
+      notes: 'Reason',
+    });
+    expect(cancelled.notes).toBe('Group participants: 2\nReason');
+  });
+  it('rejects generic reactivation into an occupied slot', async () => {
+    const f = await fixture();
+    const old = await prisma.appointment.create({ data: { ...f.input, status: 'CANCELLED' } });
+    await createBooking(f.input);
+    await expect(updateBooking(f.tenant.id, old.id, { status: 'PENDING' })).rejects.toThrow(
+      'SLOT_TAKEN',
+    );
+  });
+  it('checks the whole group on reschedule and rolls back on rejection', async () => {
+    const f = await fixture(3);
+    const old = await createBooking({ ...f.input, notes: 'Group participants: 2' });
+    const startsAt = new Date('2099-12-02T09:00:00Z');
+    await createBooking({
+      ...f.input,
+      startsAt,
+      endsAt: new Date('2099-12-02T10:00:00Z'),
+      notes: 'Group participants: 2',
+    });
+    await expect(updateBooking(f.tenant.id, old.id, { startsAt })).rejects.toThrow('SLOT_FULL');
+    expect(
+      (await prisma.appointment.findUniqueOrThrow({ where: { id: old.id } })).startsAt,
+    ).toEqual(f.input.startsAt);
+  });
+  it('serializes reschedule against a competing create', async () => {
+    const f = await fixture();
+    const old = await createBooking(f.input);
+    const startsAt = new Date('2099-12-02T09:00:00Z');
+    const results = await Promise.allSettled([
+      updateBooking(f.tenant.id, old.id, { startsAt }, peers[0]),
+      createBooking({ ...f.input, startsAt, endsAt: new Date('2099-12-02T10:00:00Z') }, peers[1]),
+    ]);
+    expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+  });
+  it('checks working hours inside the mutation', async () => {
+    const f = await fixture();
+    const old = await createBooking(f.input);
+    await prisma.specialistWorkingHours.deleteMany({ where: { specialistId: f.specialist.id } });
+    await expect(
+      updateBooking(f.tenant.id, old.id, { startsAt: new Date('2099-12-02T09:00:00Z') }),
+    ).rejects.toThrow('BOOKING_OUTSIDE_HOURS');
   });
 });

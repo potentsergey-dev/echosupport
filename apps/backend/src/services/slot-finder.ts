@@ -336,8 +336,9 @@ export async function isSlotWithinWorkingHours(
   startsAt: Date,
   endsAt: Date,
   timeZone = DEFAULT_BUSINESS_TIMEZONE,
+  db: Pick<typeof prisma, 'specialist'> = prisma,
 ): Promise<boolean> {
-  const specialist = await prisma.specialist.findUnique({
+  const specialist = await db.specialist.findUnique({
     where: { id: specialistId },
     include: { workingHours: true },
   });
