@@ -598,6 +598,25 @@ Only output the reply text — no meta-commentary.`;
 
   // ── GET /operator/appointments ─────────────────────────────────────────────
   fastify.get(
+    '/booking-specialists',
+    { preHandler: [operatorAuth, bookingFeature] },
+    async (req) => {
+      return prisma.specialist.findMany({
+        where: { tenantId: req.user.tenantId },
+        include: { workingHours: { orderBy: [{ dayOfWeek: 'asc' }, { fromMinutes: 'asc' }] } },
+        orderBy: { name: 'asc' },
+      });
+    },
+  );
+  fastify.get('/booking-services', { preHandler: [operatorAuth, bookingFeature] }, async (req) => {
+    return prisma.service.findMany({
+      where: { tenantId: req.user.tenantId },
+      include: { specialist: { select: { id: true, name: true, role: true } } },
+      orderBy: { name: 'asc' },
+    });
+  });
+
+  fastify.get(
     '/appointments',
     { preHandler: [operatorAuth, bookingFeature] },
     async (req, reply) => {

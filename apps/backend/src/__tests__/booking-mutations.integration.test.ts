@@ -682,6 +682,51 @@ describe('numeric participants and request recovery', () => {
         .status,
     ).toBe('PENDING');
   });
+  it('lets an operator read only their tenant booking catalog', async () => {
+    const f = await httpFixture();
+    try {
+      const headers = { authorization: `Bearer ${f.token('OPERATOR')}` };
+      const specialists = await f.app.inject({
+        method: 'GET',
+        url: '/api/v1/operator/booking-specialists',
+        headers,
+      });
+      const services = await f.app.inject({
+        method: 'GET',
+        url: '/api/v1/operator/booking-services',
+        headers,
+      });
+      expect(specialists.statusCode).toBe(200);
+      expect(services.statusCode).toBe(200);
+      expect(specialists.json()).toEqual([expect.objectContaining({ id: f.specialist.id })]);
+      expect(services.json()).toEqual([expect.objectContaining({ id: f.service.id })]);
+      for (const path of ['booking-specialists', 'booking-services']) {
+        expect(
+          (await f.app.inject({ method: 'GET', url: `/api/v1/operator/${path}` })).statusCode,
+        ).toBe(401);
+        expect(
+          (
+            await f.app.inject({
+              method: 'GET',
+              url: `/api/v1/operator/${path}`,
+              headers: { authorization: `Bearer ${f.token('VIEWER')}` },
+            })
+          ).statusCode,
+        ).toBe(403);
+        expect(
+          (
+            await f.app.inject({
+              method: 'GET',
+              url: `/api/v1/operator/${path}`,
+              headers: { authorization: `Bearer ${f.token('OPERATOR', randomUUID())}` },
+            })
+          ).json(),
+        ).toEqual([]);
+      }
+    } finally {
+      await f.app.close();
+    }
+  });
   it('requires an operator request key and recovers HTTP POST retries', async () => {
     const f = await httpFixture(4);
     try {

@@ -467,6 +467,13 @@ export function listAppointments(params?: {
   return request(`/operator/appointments${q ? `?${q}` : ''}`);
 }
 
+export function listBookingSpecialists(): Promise<Specialist[]> {
+  return request('/operator/booking-specialists');
+}
+export function listBookingServices(): Promise<Service[]> {
+  return request('/operator/booking-services');
+}
+
 const PENDING_BOOKING_KEY = 'echosupport.pending-booking-request';
 export function getPendingBookingRequestKey(): string {
   const current = sessionStorage.getItem(PENDING_BOOKING_KEY);

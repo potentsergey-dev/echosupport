@@ -12,8 +12,8 @@ import {
   cancelAppointment,
   rescheduleAppointment,
   updateAppointment,
-  listSpecialists,
-  listServices,
+  listBookingSpecialists as listSpecialists,
+  listBookingServices as listServices,
 } from '../lib/api';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
