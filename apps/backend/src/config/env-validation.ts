@@ -128,8 +128,8 @@ export function parseEnv(input: NodeJS.ProcessEnv): Env {
 }
 
 export function formatEnvIssues(error: z.ZodError): string[] {
-  return Object.entries(error.flatten().fieldErrors).flatMap(([key, errors]) => {
-    if (!errors?.length) return [];
+  return Object.entries(z.flattenError(error).fieldErrors).flatMap(([key, errors]) => {
+    if (!Array.isArray(errors) || errors.length === 0) return [];
     return [`  ${key}: ${errors.join(', ')}`];
   });
 }

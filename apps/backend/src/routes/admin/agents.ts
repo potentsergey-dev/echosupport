@@ -36,7 +36,20 @@ const CreateAgentSchema = z.object({
   lifecycleStatus: z.enum(['DRAFT', 'ACTIVE', 'ARCHIVED']).optional(),
 });
 
-const UpdateAgentSchema = CreateAgentSchema.partial();
+// PATCH must not apply CREATE defaults to fields absent from the request.
+const UpdateAgentSchema = CreateAgentSchema.extend({
+  llmModel: CreateAgentSchema.shape.llmModel.removeDefault(),
+  language: CreateAgentSchema.shape.language.removeDefault(),
+  sessionTtlMinutes: CreateAgentSchema.shape.sessionTtlMinutes.removeDefault(),
+  sourcePriority: CreateAgentSchema.shape.sourcePriority.removeDefault(),
+  sttProvider: CreateAgentSchema.shape.sttProvider.removeDefault(),
+  allowedOrigins: CreateAgentSchema.shape.allowedOrigins.removeDefault(),
+  maxMessagesPerHourPerVisitor:
+    CreateAgentSchema.shape.maxMessagesPerHourPerVisitor.removeDefault(),
+  maxSessionsPerDayPerVisitor: CreateAgentSchema.shape.maxSessionsPerDayPerVisitor.removeDefault(),
+  maxMessageLength: CreateAgentSchema.shape.maxMessageLength.removeDefault(),
+  bookingEnabled: CreateAgentSchema.shape.bookingEnabled.removeDefault(),
+}).partial();
 
 const SecretsSchema = z
   .object({
